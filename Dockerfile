@@ -107,8 +107,8 @@ ENV MAX_GRAD_NORM=1.0
 # ---------- SFT warm-start (Phase 1, before GRPO) ----------
 # Set DO_SFT=0 to skip the warm-start (not recommended for small models).
 ENV DO_SFT=1
-ENV SFT_EPISODES=30
-ENV SFT_EPOCHS=2
+ENV SFT_EPISODES=50
+ENV SFT_EPOCHS=4
 ENV SFT_LEARNING_RATE=2e-4
 
 # Reward for unparseable output during GRPO (single fixed value; no shaping).

@@ -118,9 +118,13 @@ def heuristic_blue_action(public_state: dict) -> dict:
     }
 
 
-def collect_sft_dataset(num_episodes: int, system_msg: str,
-                        is_qwen: bool, is_llama: bool) -> Dataset:
-    """Roll out the env with the heuristic Blue policy and record (prompt, action) pairs."""
+def collect_sft_dataset(num_episodes: int, system_msg: str) -> Dataset:
+    """Roll out the env with the heuristic Blue policy and record (prompt, action) pairs.
+
+    Returns a dataset in TRL "messages" format so SFTTrainer applies the chat
+    template automatically AND masks prompt tokens from the loss (only the
+    JSON answer contributes to the gradient).
+    """
     pairs = []
     for _ep in range(num_episodes):
         env = CyberSelfPlayEnvironment()
@@ -136,16 +140,22 @@ def collect_sft_dataset(num_episodes: int, system_msg: str,
             if red_obs.done:
                 break
             blue_dict = heuristic_blue_action(red_obs.public_state)
-            prompt = make_prompt(
-                {
-                    "public_state": red_obs.public_state,
-                    "telemetry": red_obs.telemetry,
-                    "incident_summary": red_obs.incident_summary,
-                },
-                system_msg, is_qwen, is_llama,
+            obs_payload = {
+                "public_state": red_obs.public_state,
+                "telemetry": red_obs.telemetry,
+                "incident_summary": red_obs.incident_summary,
+            }
+            user_msg = (
+                f"Observation:\n{json.dumps(obs_payload, ensure_ascii=True)}\n\n"
+                "Reply with ONE JSON line ending with '}'. Nothing else."
             )
-            completion = json.dumps(blue_dict, ensure_ascii=True) + assistant_suffix(is_qwen, is_llama)
-            pairs.append({"text": prompt + completion})
+            pairs.append({
+                "messages": [
+                    {"role": "system",    "content": system_msg},
+                    {"role": "user",      "content": user_msg},
+                    {"role": "assistant", "content": json.dumps(blue_dict, ensure_ascii=True)},
+                ]
+            })
             obs = env.step(CyberAction(**blue_dict))
     return Dataset.from_list(pairs)
 
@@ -173,6 +183,7 @@ def make_prompt(obs_dict: dict, system_msg: str, is_qwen: bool, is_llama: bool) 
 
 
 INVALID_PENALTY = float(os.environ.get("INVALID_PENALTY", -1.0))
+_REWARD_CALLS = {"n": 0}
 
 
 def compute_rewards(prompts, completions, **_kwargs):
@@ -186,8 +197,11 @@ def compute_rewards(prompts, completions, **_kwargs):
     - unparseable      -> INVALID_PENALTY (single fixed value, default -1.0)
     """
     rewards = []
+    debug_text = None
     for _p, comp in zip(prompts, completions):
         text = comp if isinstance(comp, str) else comp.get("content", "")
+        if debug_text is None:
+            debug_text = text
         action, ok = parse_action(text)
         if not ok:
             rewards.append(INVALID_PENALTY)
@@ -200,6 +214,14 @@ def compute_rewards(prompts, completions, **_kwargs):
             rewards.append(float(obs.reward or 0.0))
         except Exception:
             rewards.append(INVALID_PENALTY)
+    _REWARD_CALLS["n"] += 1
+    if _REWARD_CALLS["n"] % 20 == 1 and debug_text:
+        n_ok = sum(1 for r in rewards if r != INVALID_PENALTY)
+        print(
+            f"[grpo_space][reward debug] batch_size={len(rewards)} "
+            f"parsed={n_ok}/{len(rewards)} sample={debug_text.strip()[:200]!r}",
+            flush=True,
+        )
     return rewards
 
 
@@ -407,7 +429,7 @@ def main() -> None:
     if do_sft:
         print(f"[grpo_space] === Phase 1: SFT warm-start "
               f"({sft_episodes} episodes, {sft_epochs} epochs) ===")
-        sft_dataset = collect_sft_dataset(sft_episodes, system_msg, is_qwen, is_llama)
+        sft_dataset = collect_sft_dataset(sft_episodes, system_msg)
         print(f"[grpo_space] SFT dataset size = {len(sft_dataset)}")
         sft_args = SFTConfig(
             output_dir=os.path.join(output_dir, "sft"),
@@ -423,9 +445,8 @@ def main() -> None:
             save_strategy="no",
             report_to="none",
             max_length=max_seq_len,
-            dataset_text_field="text",
-            packing=True,
-            packing_strategy="bfd",
+            packing=False,
+            completion_only_loss=True,
         )
         sft_trainer = SFTTrainer(
             model=model,
@@ -435,6 +456,32 @@ def main() -> None:
         )
         sft_trainer.train()
         print("[grpo_space] SFT done.")
+
+        # Sanity check parse rate before letting GRPO run
+        FastLanguageModel.for_inference(model)
+        ok = 0
+        for _ in range(8):
+            env_t = CyberSelfPlayEnvironment(); env_t.reset()
+            env_t.step(CyberAction(actor="red", tool_name="attempt_exploit", target="host-01"))
+            o = env_t.step(CyberAction(actor="red", tool_name="recon_network", target="host-00"))
+            p = make_prompt(
+                {"public_state": o.public_state, "telemetry": o.telemetry,
+                 "incident_summary": o.incident_summary},
+                system_msg, is_qwen, is_llama,
+            )
+            inp = tokenizer(p, return_tensors="pt").to(model.device)
+            out = model.generate(**inp, max_new_tokens=128, do_sample=True, temperature=0.7,
+                                 pad_token_id=tokenizer.pad_token_id, eos_token_id=tokenizer.eos_token_id)
+            gen = tokenizer.decode(out[0][inp.input_ids.shape[1]:], skip_special_tokens=True)
+            _, parsed = parse_action(gen)
+            ok += int(parsed)
+            print(f"[grpo_space] sft_check parses={parsed}: {gen.strip()[:160]!r}")
+        print(f"[grpo_space] SFT parse rate: {ok}/8")
+        FastLanguageModel.for_training(model)
+        if ok < 4:
+            raise RuntimeError(
+                f"SFT parse rate too low ({ok}/8). Increase SFT_EPISODES/SFT_EPOCHS or use a larger BASE_MODEL."
+            )
     else:
         print("[grpo_space] DO_SFT=0 — skipping SFT warm-start.")
 

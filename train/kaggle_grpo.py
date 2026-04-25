@@ -68,7 +68,7 @@ print(f"GPU: {torch.cuda.get_device_name(0) if has_cuda else 'none'}")
 # ---------- 8) Model load ----------
 MAX_SEQ_LEN = 1024
 LORA_RANK   = 16
-BASE_MODEL  = "unsloth/Qwen2.5-0.5B-Instruct-bnb-4bit"
+BASE_MODEL  = "unsloth/Qwen2.5-Coder-1.5B-Instruct-bnb-4bit"
 
 model, tokenizer = FastLanguageModel.from_pretrained(
     model_name=BASE_MODEL,
@@ -164,10 +164,18 @@ def heuristic_blue_action(public_state: dict) -> dict:
             "target":"host-00","params":{},"rationale":"baseline action"}
 
 # ---------- 11) Collect SFT dataset from real env rollouts ----------
+# Uses TRL "messages" format -> chat template applied automatically AND
+# prompt tokens are masked from the loss (only JSON tokens contribute).
 print("\n===== Phase 1: collecting SFT data from heuristic policy =====")
-N_SFT_EPISODES = 30      # ~30 episodes x ~20 steps = ~600 (obs, action) pairs
+N_SFT_EPISODES = 50      # ~50 episodes x ~20 steps = ~1000 (obs, action) pairs
 RED_TOOLS = ["recon_network", "attempt_exploit", "lateral_move", "exfiltrate_data"]
 random.seed(42)
+
+def _user_msg(obs_dict: dict) -> str:
+    return (
+        f"Observation:\n{json.dumps(obs_dict, ensure_ascii=True)}\n\n"
+        "Reply with ONE JSON line ending with '}'. Nothing else."
+    )
 
 sft_pairs = []
 for ep in range(N_SFT_EPISODES):
@@ -181,25 +189,30 @@ for ep in range(N_SFT_EPISODES):
         red_obs = env.step(red_act)
         if red_obs.done: break
         blue_action_dict = heuristic_blue_action(red_obs.public_state)
-        prompt = obs_to_prompt({
+        obs_payload = {
             "public_state":     red_obs.public_state,
             "telemetry":        red_obs.telemetry,
             "incident_summary": red_obs.incident_summary,
+        }
+        sft_pairs.append({
+            "messages": [
+                {"role": "system",    "content": SYSTEM_MSG},
+                {"role": "user",      "content": _user_msg(obs_payload)},
+                {"role": "assistant", "content": json.dumps(blue_action_dict, ensure_ascii=True)},
+            ]
         })
-        completion = json.dumps(blue_action_dict, ensure_ascii=True) + assistant_suffix()
-        sft_pairs.append({"text": prompt + completion})
         obs = env.step(CyberAction(**blue_action_dict))
-print(f"Collected {len(sft_pairs)} SFT (prompt + completion) pairs.")
+print(f"Collected {len(sft_pairs)} SFT examples in messages format.")
 sft_dataset = Dataset.from_list(sft_pairs)
 
 # ---------- 12) SFT phase ----------
-print("\n===== Phase 1: SFT (imitation learning, no reward) =====")
+print("\n===== Phase 1: SFT (imitation learning, completion-only loss) =====")
 sft_args = SFTConfig(
     output_dir                  = "/kaggle/working/outputs_cyber/sft",
     learning_rate               = 2e-4,
-    per_device_train_batch_size = 8,
-    gradient_accumulation_steps = 2,
-    num_train_epochs            = 2,
+    per_device_train_batch_size = 4,
+    gradient_accumulation_steps = 4,
+    num_train_epochs            = 4,
     logging_steps               = 5,
     warmup_steps                = 5,
     optim                       = "adamw_8bit",
@@ -208,9 +221,8 @@ sft_args = SFTConfig(
     save_strategy               = "no",
     report_to                   = "none",
     max_length                  = MAX_SEQ_LEN,
-    dataset_text_field          = "text",
-    packing                     = True,
-    packing_strategy            = "bfd",
+    packing                     = False,
+    completion_only_loss        = True,
 )
 sft_trainer = SFTTrainer(
     model         = model,
@@ -224,8 +236,8 @@ print("SFT done.")
 # ---------- 13) Sanity check after SFT (parses should be ~100%) ----------
 print("\n===== Post-SFT sanity check =====")
 FastLanguageModel.for_inference(model)
-ok_count = 0
-for i in range(5):
+ok_count, n_check = 0, 8
+for i in range(n_check):
     env_t = CyberSelfPlayEnvironment(); env_t.reset()
     env_t.step(CyberAction(actor="red", tool_name="attempt_exploit",
                            target=f"host-{random.randint(0,3):02d}"))
@@ -238,8 +250,18 @@ for i in range(5):
     gen = tokenizer.decode(out[0][inp.input_ids.shape[1]:], skip_special_tokens=True)
     _, ok = parse_action(gen)
     ok_count += int(ok)
-    print(f"sample {i+1} (parses={ok}): {gen.strip()[:160]}")
-print(f"\nSFT parse rate: {ok_count}/5 -- if < 4, increase N_SFT_EPISODES or epochs.")
+    print(f"sample {i+1} (parses={ok}): {gen.strip()[:200]}")
+
+parse_rate = ok_count / n_check
+print(f"\nSFT parse rate: {ok_count}/{n_check} = {parse_rate:.0%}")
+if parse_rate < 0.5:
+    raise RuntimeError(
+        f"SFT parse rate too low ({parse_rate:.0%}). "
+        "GRPO will not learn -- aborting.\n"
+        "Fixes: (a) increase N_SFT_EPISODES (50 -> 100), "
+        "(b) increase num_train_epochs (4 -> 6), "
+        "(c) try a stronger BASE_MODEL (Qwen2.5-1.5B-Instruct-bnb-4bit)."
+    )
 FastLanguageModel.for_training(model)
 
 # =============================================================================
@@ -264,7 +286,8 @@ train_dataset = Dataset.from_list(prompts)
 print(f"Built {len(train_dataset)} GRPO prompts.")
 
 # ---------- 15) Reward = environment reward only ----------
-INVALID_PENALTY = -1.0   # single fixed penalty for unparseable output
+INVALID_PENALTY = -1.0    # single fixed penalty for unparseable output
+_REWARD_CALLS = {"n": 0}  # track how many times compute_rewards has been called
 
 def compute_rewards(prompts, completions, **kwargs):
     """Pure environmental reward.
@@ -274,8 +297,11 @@ def compute_rewards(prompts, completions, **kwargs):
     - unparseable       -> reward = INVALID_PENALTY
     """
     rewards = []
+    debug_text = None
     for _p, comp in zip(prompts, completions):
         text = comp if isinstance(comp, str) else comp.get("content", "")
+        if debug_text is None:
+            debug_text = text
         action, ok = parse_action(text)
         if not ok:
             rewards.append(INVALID_PENALTY)
@@ -288,6 +314,12 @@ def compute_rewards(prompts, completions, **kwargs):
             rewards.append(float(obs.reward or 0.0))
         except Exception:
             rewards.append(INVALID_PENALTY)
+
+    _REWARD_CALLS["n"] += 1
+    if _REWARD_CALLS["n"] % 20 == 1 and debug_text:  # ~once per logging step
+        n_ok = sum(1 for r in rewards if r != INVALID_PENALTY)
+        print(f"[reward debug] batch_size={len(rewards)} parsed={n_ok}/{len(rewards)} "
+              f"sample={debug_text.strip()[:200]!r}", flush=True)
     return rewards
 
 # ---------- 16) Live plot + per-step print ----------
