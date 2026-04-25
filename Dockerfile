@@ -60,7 +60,7 @@ ENV TRANSFORMERS_CACHE=/data/.cache/huggingface/transformers
 # Training configuration (all OPT-IN, override any of these in Space variables)
 # =============================================================================
 # Master switch — flip to "1" in Space "Variables and secrets" to enable.
-ENV RUN_TRAIN_ON_STARTUP=0
+ENV RUN_TRAIN_ON_STARTUP=1
 
 # Which trainer to launch. Options:
 #   train/grpo_space.py          (Unsloth + GRPO, recommended)

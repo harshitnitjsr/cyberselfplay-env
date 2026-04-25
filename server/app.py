@@ -34,10 +34,10 @@ def maybe_start_training() -> None:
       TRAIN_SCRIPT_PATH=train/grpo_space.py
       TRAIN_ONCE_TAG=v1                 - run once per tag (uses .runtime/ marker)
     """
-    flag = os.getenv("RUN_TRAIN_ON_STARTUP", "0")
+    flag = os.getenv("RUN_TRAIN_ON_STARTUP", "1")
     script_rel = os.getenv("TRAIN_SCRIPT_PATH", "train/grpo_space.py")
     once_tag = os.getenv("TRAIN_ONCE_TAG", "").strip()
-    train_always = os.getenv("TRAIN_ALWAYS", "0") == "1"
+    train_always = os.getenv("TRAIN_ALWAYS", "1") == "1"
     print(
         f"[train-startup] RUN_TRAIN_ON_STARTUP={flag!r} "
         f"TRAIN_SCRIPT_PATH={script_rel!r} TRAIN_ONCE_TAG={once_tag!r} "
