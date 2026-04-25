@@ -56,16 +56,20 @@ These values are surfaced in `posg_metrics` each step.
 Red reward:
 
 $$
-r_R = w_1 I_{\text{foothold}} + w_2 I_{\text{priv}} + w_3 I_{\text{lateral}} + w_4 I_{\text{exfil}}
-- w_5 I_{\text{detect}} + w_6 I_{\text{plan\_sabotage}} - \eta_R
+\begin{aligned}
+r_R &= w_1 I_{\mathrm{foothold}} + w_2 I_{\mathrm{priv}} + w_3 I_{\mathrm{lateral}} + w_4 I_{\mathrm{exfil}} \\
+&\quad - w_5 I_{\mathrm{detect}} + w_6 I_{\mathrm{plan\_sabotage}} - \eta_R
+\end{aligned}
 $$
 
 Blue reward:
 
 $$
-r_B = v_1 I_{\text{detect}} + v_2 I_{\text{contain}} + v_3 I_{\text{recover}} - v_4 I_{\text{exfil}}
-+ v_5 I_{\text{instruction\_progress}} + v_6 I_{\text{checkpoint}} - v_7 I_{\text{instruction\_violation}}
-+ v_8 \rho_{\text{inst}} - \eta_B
+\begin{aligned}
+r_B &= v_1 I_{\mathrm{detect}} + v_2 I_{\mathrm{contain}} + v_3 I_{\mathrm{recover}} - v_4 I_{\mathrm{exfil}} \\
+&\quad + v_5 I_{\mathrm{instruction\_progress}} + v_6 I_{\mathrm{checkpoint}} - v_7 I_{\mathrm{instruction\_violation}} \\
+&\quad + v_8 \rho_{\mathrm{inst}} - \eta_B
+\end{aligned}
 $$
 
 This combines immediate cyber events with delayed plan-following signal.
@@ -127,14 +131,16 @@ Blue receives delayed checkpoint rewards every `checkpoint_every` steps and can 
 
 The environment emits metrics suitable for hackathon judging and ablations:
 
-- **MTTD**:
-  $$
-  \text{MTTD}=t_{\text{first-detect}}-t_{\text{first-compromise}}
-  $$
-- **MTTR**:
-  $$
-  \text{MTTR}=t_{\text{recover}}-t_{\text{first-detect}}
-  $$
+**MTTD**
+$$
+\mathrm{MTTD}=t_{\mathrm{first\_detect}}-t_{\mathrm{first\_compromise}}
+$$
+
+**MTTR**
+$$
+\mathrm{MTTR}=t_{\mathrm{recover}}-t_{\mathrm{first\_detect}}
+$$
+
 - **Exfiltration Success Rate**
 - **Critical Asset Compromise Rate**
 - **False-Positive Disruption Cost**
