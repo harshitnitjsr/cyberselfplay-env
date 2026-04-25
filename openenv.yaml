@@ -1,0 +1,16 @@
+env:
+  name: "CyberSelfPlay"
+  author: "Hackathon Team"
+  description: "Long-horizon red-vs-blue cyber POSG with adaptive self-play curriculum and delayed instruction-following rewards."
+  version: "0.1.0"
+
+server:
+  host: "0.0.0.0"
+  port: 7870
+  workers: 1
+  module: "server.app:app"
+
+features:
+  multi_reward: true
+  prevent_hacking: true
+  curriculum_scheduler: true

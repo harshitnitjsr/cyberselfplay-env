@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openenv-cyber-selfplay"
+version = "0.1.0"
+description = "Cyber defense red-vs-blue self-play environment for OpenEnv"
+requires-python = ">=3.10"
+dependencies = [
+  "openenv-core[core]>=0.2.2",
+  "fastapi>=0.110.0",
+  "uvicorn>=0.27.0",
+  "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+train = [
+  "trl>=0.10.0",
+  "transformers>=4.40.0",
+  "datasets>=2.19.0",
+  "accelerate>=0.30.0",
+]
+
+[project.scripts]
+server = "server.app:main"
+
+[tool.setuptools]
+packages = ["cyber_selfplay_env", "server"]
