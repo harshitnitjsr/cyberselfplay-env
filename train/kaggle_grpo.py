@@ -91,7 +91,9 @@ model = FastLanguageModel.get_peft_model(
 IS_LLAMA = "llama" in BASE_MODEL.lower()
 IS_QWEN  = "qwen"  in BASE_MODEL.lower()
 
-# ---------- 9) Prompt builder + JSON parser ----------
+# ---------- 9) Prompt builder (single source of truth) + JSON parser ----------
+# Both SFT data and GRPO inference go through tokenizer.apply_chat_template
+# so the formats are byte-identical. NO hand-written prompt strings anywhere.
 VALID_BLUE = list(BLUE_TOOLS)
 
 SYSTEM_MSG = (
@@ -101,31 +103,22 @@ SYSTEM_MSG = (
     "\"target\":\"host-XX\",\"params\":{},\"rationale\":\"short\"}}"
 )
 
-def obs_to_prompt(obs_dict: dict) -> str:
-    user_msg = (
+def _user_msg(obs_dict: dict) -> str:
+    return (
         f"Observation:\n{json.dumps(obs_dict, ensure_ascii=True)}\n\n"
         "Reply with ONE JSON line ending with '}'. Nothing else."
     )
-    if IS_LLAMA:
-        return (
-            "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n"
-            f"{SYSTEM_MSG}<|eot_id|>"
-            "<|start_header_id|>user<|end_header_id|>\n\n"
-            f"{user_msg}<|eot_id|>"
-            "<|start_header_id|>assistant<|end_header_id|>\n\n"
-        )
-    if IS_QWEN:
-        return (
-            f"<|im_start|>system\n{SYSTEM_MSG}<|im_end|>\n"
-            f"<|im_start|>user\n{user_msg}<|im_end|>\n"
-            f"<|im_start|>assistant\n"
-        )
-    return f"{SYSTEM_MSG}\n\n{user_msg}\n\nAction JSON:"
 
-def assistant_suffix() -> str:
-    if IS_LLAMA: return "<|eot_id|>"
-    if IS_QWEN:  return "<|im_end|>"
-    return ""
+def obs_to_prompt(obs_dict: dict) -> str:
+    """Inference prompt. Same chat template SFT used, with assistant header appended."""
+    return tokenizer.apply_chat_template(
+        [
+            {"role": "system", "content": SYSTEM_MSG},
+            {"role": "user",   "content": _user_msg(obs_dict)},
+        ],
+        tokenize=False,
+        add_generation_prompt=True,
+    )
 
 JSON_RE = re.compile(r"\{[^{}]*\}", re.DOTALL)
 
@@ -170,12 +163,6 @@ print("\n===== Phase 1: collecting SFT data from heuristic policy =====")
 N_SFT_EPISODES = 50      # ~50 episodes x ~20 steps = ~1000 (obs, action) pairs
 RED_TOOLS = ["recon_network", "attempt_exploit", "lateral_move", "exfiltrate_data"]
 random.seed(42)
-
-def _user_msg(obs_dict: dict) -> str:
-    return (
-        f"Observation:\n{json.dumps(obs_dict, ensure_ascii=True)}\n\n"
-        "Reply with ONE JSON line ending with '}'. Nothing else."
-    )
 
 sft_pairs = []
 for ep in range(N_SFT_EPISODES):
@@ -246,9 +233,12 @@ sft_trainer.train()
 print("SFT done.")
 
 # ---------- 13) Sanity check after SFT (parses should be ~100%) ----------
-print("\n===== Post-SFT sanity check =====")
+# Use GREEDY decoding -- this is the truest signal of what SFT actually learned.
+# Sampling can mask success (lucky) or hide success (unlucky).
+print("\n===== Post-SFT sanity check (greedy decoding) =====")
 FastLanguageModel.for_inference(model)
 ok_count, n_check = 0, 8
+example_prompt, example_gen = None, None
 for i in range(n_check):
     env_t = CyberSelfPlayEnvironment(); env_t.reset()
     env_t.step(CyberAction(actor="red", tool_name="attempt_exploit",
@@ -257,22 +247,34 @@ for i in range(n_check):
     p = obs_to_prompt({"public_state": o.public_state, "telemetry": o.telemetry,
                        "incident_summary": o.incident_summary})
     inp = tokenizer(p, return_tensors="pt").to(model.device)
-    out = model.generate(**inp, max_new_tokens=128, do_sample=True, temperature=0.7,
-                         pad_token_id=tokenizer.pad_token_id, eos_token_id=tokenizer.eos_token_id)
+    out = model.generate(**inp, max_new_tokens=128, do_sample=False,
+                         pad_token_id=tokenizer.pad_token_id,
+                         eos_token_id=tokenizer.eos_token_id)
     gen = tokenizer.decode(out[0][inp.input_ids.shape[1]:], skip_special_tokens=True)
     _, ok = parse_action(gen)
     ok_count += int(ok)
     print(f"sample {i+1} (parses={ok}): {gen.strip()[:200]}")
+    if example_prompt is None:
+        example_prompt, example_gen = p, gen
 
 parse_rate = ok_count / n_check
 print(f"\nSFT parse rate: {ok_count}/{n_check} = {parse_rate:.0%}")
+
 if parse_rate < 0.5:
+    # Print one full prompt + generation so the user can SEE what the model is doing.
+    print("\n--- DEBUG: full inference prompt the model is being given ---")
+    print(example_prompt)
+    print("--- DEBUG: full model output ---")
+    print(example_gen)
+    print("--- DEBUG: example SFT training text ---")
+    print(sft_dataset[0]["text"][:1500])
+    print("--- end debug ---\n")
     raise RuntimeError(
         f"SFT parse rate too low ({parse_rate:.0%}). "
         "GRPO will not learn -- aborting.\n"
         "Fixes: (a) increase N_SFT_EPISODES (50 -> 100), "
         "(b) increase num_train_epochs (4 -> 6), "
-        "(c) try a stronger BASE_MODEL (Qwen2.5-1.5B-Instruct-bnb-4bit)."
+        "(c) try a stronger BASE_MODEL (Qwen2.5-Coder-1.5B-Instruct-bnb-4bit)."
     )
 FastLanguageModel.for_training(model)
 

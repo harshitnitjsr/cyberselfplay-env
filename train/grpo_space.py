@@ -89,14 +89,6 @@ def parse_action(text: str):
     return a, True
 
 
-def assistant_suffix(is_qwen: bool, is_llama: bool) -> str:
-    if is_llama:
-        return "<|eot_id|>"
-    if is_qwen:
-        return "<|im_end|>"
-    return ""
-
-
 def heuristic_blue_action(public_state: dict) -> dict:
     """Lightweight imitation target — same logic as train/colab_trl_selfplay.py."""
     known = int(public_state.get("known_incident_count", 0) or 0)
@@ -160,26 +152,28 @@ def collect_sft_dataset(num_episodes: int, system_msg: str) -> Dataset:
     return Dataset.from_list(pairs)
 
 
-def make_prompt(obs_dict: dict, system_msg: str, is_qwen: bool, is_llama: bool) -> str:
-    user_msg = (
+def _user_msg(obs_dict: dict) -> str:
+    return (
         f"Observation:\n{json.dumps(obs_dict, ensure_ascii=True)}\n\n"
         "Reply with ONE JSON line ending with '}'. Nothing else."
     )
-    if is_llama:
-        return (
-            "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n"
-            f"{system_msg}<|eot_id|>"
-            "<|start_header_id|>user<|end_header_id|>\n\n"
-            f"{user_msg}<|eot_id|>"
-            "<|start_header_id|>assistant<|end_header_id|>\n\n"
-        )
-    if is_qwen:
-        return (
-            f"<|im_start|>system\n{system_msg}<|im_end|>\n"
-            f"<|im_start|>user\n{user_msg}<|im_end|>\n"
-            f"<|im_start|>assistant\n"
-        )
-    return f"{system_msg}\n\n{user_msg}\n\nAction JSON:"
+
+
+def make_prompt(obs_dict: dict, system_msg: str, tokenizer) -> str:
+    """Build inference-time prompt using the model's own chat template.
+
+    Byte-identical to the format SFT trained on (after `apply_chat_template`),
+    just without the assistant content -- so the model continues from where
+    the assistant header ends.
+    """
+    return tokenizer.apply_chat_template(
+        [
+            {"role": "system", "content": system_msg},
+            {"role": "user",   "content": _user_msg(obs_dict)},
+        ],
+        tokenize=False,
+        add_generation_prompt=True,
+    )
 
 
 INVALID_PENALTY = float(os.environ.get("INVALID_PENALTY", -1.0))
@@ -413,8 +407,6 @@ def main() -> None:
         use_gradient_checkpointing="unsloth",
     )
 
-    is_llama = "llama" in base_model.lower()
-    is_qwen = "qwen" in base_model.lower()
     system_msg = (
         "You are the Blue defender in a cyber self-play game. "
         "Output EXACTLY one JSON object on a single line, then stop. No explanation.\n"
@@ -476,7 +468,7 @@ def main() -> None:
             p = make_prompt(
                 {"public_state": o.public_state, "telemetry": o.telemetry,
                  "incident_summary": o.incident_summary},
-                system_msg, is_qwen, is_llama,
+                system_msg, tokenizer,
             )
             inp = tokenizer(p, return_tensors="pt").to(model.device)
             out = model.generate(**inp, max_new_tokens=128, do_sample=True, temperature=0.7,
@@ -512,7 +504,7 @@ def main() -> None:
                 "telemetry": obs.telemetry,
                 "incident_summary": obs.incident_summary,
             },
-            system_msg, is_qwen, is_llama,
+            system_msg, tokenizer,
         )})
     train_dataset = Dataset.from_list(prompts)
     print(f"[grpo_space] dataset size = {len(train_dataset)}")
