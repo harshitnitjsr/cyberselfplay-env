@@ -431,6 +431,14 @@ def main() -> None:
               f"({sft_episodes} episodes, {sft_epochs} epochs) ===")
         sft_dataset = collect_sft_dataset(sft_episodes, system_msg)
         print(f"[grpo_space] SFT dataset size = {len(sft_dataset)}")
+
+        # Pre-apply the chat template so Unsloth's SFTTrainer gets plain text.
+        def _msgs_to_text(example):
+            return {"text": tokenizer.apply_chat_template(
+                example["messages"], tokenize=False, add_generation_prompt=False,
+            )}
+        sft_dataset = sft_dataset.map(_msgs_to_text, remove_columns=["messages"])
+
         sft_args = SFTConfig(
             output_dir=os.path.join(output_dir, "sft"),
             learning_rate=sft_lr,
@@ -445,8 +453,9 @@ def main() -> None:
             save_strategy="no",
             report_to="none",
             max_length=max_seq_len,
-            packing=False,
-            completion_only_loss=True,
+            dataset_text_field="text",
+            packing=True,
+            packing_strategy="bfd",
         )
         sft_trainer = SFTTrainer(
             model=model,

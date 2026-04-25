@@ -205,8 +205,19 @@ for ep in range(N_SFT_EPISODES):
 print(f"Collected {len(sft_pairs)} SFT examples in messages format.")
 sft_dataset = Dataset.from_list(sft_pairs)
 
+# Pre-apply the chat template -> Unsloth's SFTTrainer wants plain text input.
+def _msgs_to_text(example):
+    return {"text": tokenizer.apply_chat_template(
+        example["messages"],
+        tokenize=False,
+        add_generation_prompt=False,
+    )}
+
+sft_dataset = sft_dataset.map(_msgs_to_text, remove_columns=["messages"])
+print("Sample SFT text:\n", sft_dataset[0]["text"][:400], "...\n")
+
 # ---------- 12) SFT phase ----------
-print("\n===== Phase 1: SFT (imitation learning, completion-only loss) =====")
+print("\n===== Phase 1: SFT (imitation learning, BFD-packed) =====")
 sft_args = SFTConfig(
     output_dir                  = "/kaggle/working/outputs_cyber/sft",
     learning_rate               = 2e-4,
@@ -221,8 +232,9 @@ sft_args = SFTConfig(
     save_strategy               = "no",
     report_to                   = "none",
     max_length                  = MAX_SEQ_LEN,
-    packing                     = False,
-    completion_only_loss        = True,
+    dataset_text_field          = "text",
+    packing                     = True,
+    packing_strategy            = "bfd",
 )
 sft_trainer = SFTTrainer(
     model         = model,
