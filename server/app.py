@@ -31,20 +31,30 @@ def maybe_start_training() -> None:
 
     Env vars:
       RUN_TRAIN_ON_STARTUP=1            - opt-in
-      TRAIN_SCRIPT_PATH=train/colab_trl_selfplay.py
+      TRAIN_SCRIPT_PATH=train/grpo_space.py
       TRAIN_ONCE_TAG=v1                 - run once per tag (uses .runtime/ marker)
     """
-    if os.getenv("RUN_TRAIN_ON_STARTUP", "0") != "1":
+    flag = os.getenv("RUN_TRAIN_ON_STARTUP", "0")
+    script_rel = os.getenv("TRAIN_SCRIPT_PATH", "train/grpo_space.py")
+    once_tag = os.getenv("TRAIN_ONCE_TAG", "").strip()
+    train_always = os.getenv("TRAIN_ALWAYS", "0") == "1"
+    print(
+        f"[train-startup] RUN_TRAIN_ON_STARTUP={flag!r} "
+        f"TRAIN_SCRIPT_PATH={script_rel!r} TRAIN_ONCE_TAG={once_tag!r} "
+        f"TRAIN_ALWAYS={train_always}"
+    )
+
+    if flag != "1":
+        print("[train-startup] disabled (RUN_TRAIN_ON_STARTUP != '1') — skipping.")
         return
 
-    script_rel = os.getenv("TRAIN_SCRIPT_PATH", "train/colab_trl_selfplay.py")
     script_path = REPO_ROOT / script_rel
     if not script_path.exists():
         print(f"[train-startup] script not found: {script_path}; skipping.")
         return
 
-    once_tag = os.getenv("TRAIN_ONCE_TAG", "").strip()
-    if once_tag:
+    # TRAIN_ALWAYS=1 bypasses the once-per-tag marker so training fires every startup.
+    if once_tag and not train_always:
         marker_dir = REPO_ROOT / ".runtime"
         marker_dir.mkdir(parents=True, exist_ok=True)
         marker_file = marker_dir / f"train_done_{once_tag}.marker"
@@ -52,11 +62,21 @@ def maybe_start_training() -> None:
             print(f"[train-startup] skipped (already ran for tag '{once_tag}')")
             return
         marker_file.write_text("scheduled", encoding="utf-8")
+    elif train_always:
+        print("[train-startup] TRAIN_ALWAYS=1 — running every startup.")
 
-    cmd = [sys.executable, str(script_path)]
-    print(f"[train-startup] launching: {' '.join(cmd)}")
+    log_path = REPO_ROOT / ".runtime" / "train.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [sys.executable, "-u", str(script_path)]
+    print(f"[train-startup] launching: {' '.join(cmd)} (log: {log_path})")
     try:
-        subprocess.Popen(cmd, cwd=str(REPO_ROOT))
+        log_fh = open(log_path, "ab", buffering=0)
+        subprocess.Popen(
+            cmd,
+            cwd=str(REPO_ROOT),
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
+        )
     except Exception as exc:  # pragma: no cover - best-effort
         print(f"[train-startup] failed to launch: {exc!s}")
 

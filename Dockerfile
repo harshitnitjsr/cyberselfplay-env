@@ -73,13 +73,36 @@ ENV TRAIN_SCRIPT_PATH=train/grpo_space.py
 # Empty string = no idempotency (training runs every container start).
 ENV TRAIN_ONCE_TAG=
 
+# TRAIN_ALWAYS=1 makes training run on every Space startup, ignoring TRAIN_ONCE_TAG markers.
+# Default 0 keeps the marker-based once-per-tag behavior intact.
+ENV TRAIN_ALWAYS=1
+
 # ---------- GRPO trainer knobs (read by train/grpo_space.py) ----------
+# Base model and adapter
 ENV BASE_MODEL=unsloth/Qwen2.5-0.5B-Instruct-bnb-4bit
-ENV MAX_STEPS=150
-ENV NUM_GENERATIONS=4
-ENV LEARNING_RATE=5e-6
 ENV LORA_RANK=16
+ENV MAX_SEQ_LEN=1024
 ENV OUTPUT_DIR=/data/outputs_cyber
+
+# Training schedule
+ENV MAX_STEPS=150
+ENV WARMUP_STEPS=10
+ENV LEARNING_RATE=5e-6
+ENV LOGGING_STEPS=5
+ENV SAVE_STEPS=50
+
+# Batch & generation shape
+ENV PER_DEVICE_BATCH_SIZE=4
+ENV GRAD_ACCUM_STEPS=2
+ENV NUM_GENERATIONS=4
+ENV MAX_COMPLETION_LENGTH=128
+ENV NUM_PROMPTS=64
+
+# GRPO sampling & stability
+ENV TEMPERATURE=0.7
+ENV TOP_P=0.9
+ENV BETA=0.02
+ENV MAX_GRAD_NORM=1.0
 
 # ---------- TRL SFT trainer knobs (used by colab_trl_selfplay.py) ----------
 ENV TRAIN_LEAGUE_ROUNDS=0

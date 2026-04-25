@@ -97,27 +97,57 @@ def make_prompt(obs_dict: dict, system_msg: str, is_qwen: bool, is_llama: bool) 
     return f"{system_msg}\n\n{user_msg}\n\nAction JSON:"
 
 
+def _format_reward(text: str) -> float:
+    """Smooth, partial-credit reward for JSON formatting progress.
+
+    Gives gradient signal even when the model can't yet emit perfect JSON,
+    so GRPO has something to climb toward instead of a flat -1.5 plateau.
+    Range: [-1.0, +1.5].
+    """
+    s = text.strip()
+    if len(s) < 5:
+        return -1.0
+    score = -0.5
+    if "{" in s:
+        score += 0.2
+    if "}" in s:
+        score += 0.2
+    if "actor" in s and "blue" in s:
+        score += 0.3
+    if "tool_name" in s:
+        score += 0.3
+    for tool in VALID_BLUE:
+        if tool in s:
+            score += 0.5
+            break
+    if "target" in s and "host-" in s:
+        score += 0.2
+    return score
+
+
 def compute_rewards(prompts, completions, **_kwargs):
     rewards = []
     for _p, comp in zip(prompts, completions):
         text = comp if isinstance(comp, str) else comp.get("content", "")
-        if len(text.strip()) < 20:
-            rewards.append(-2.0)
-            continue
+
+        fmt = _format_reward(text)
         action, ok = parse_action(text)
+
         if not ok:
-            rewards.append(-1.5)
+            rewards.append(fmt)
             continue
+
         env = CyberSelfPlayEnvironment()
         env.reset()
         env.step(CyberAction(actor="red", tool_name="attempt_exploit", target="host-01"))
         try:
             obs = env.step(CyberAction(**action))
-            r = float(obs.reward or 0.0)
+            env_r = float(obs.reward or 0.0)
         except Exception:
-            r = -1.0
-        r += 0.5
-        if 30 <= len(text) <= 120:
+            env_r = -1.0
+
+        r = fmt + env_r + 1.0
+        if 30 <= len(text) <= 150:
             r += 0.2
         rewards.append(r)
     return rewards
@@ -132,7 +162,19 @@ def main() -> None:
     output_dir = _env("OUTPUT_DIR", "/data/outputs_cyber")
     target_repo = _env("TARGET_REPO_ID", "")
     hf_token = _env("HF_TOKEN", "")
-    max_seq_len = 1024
+    # GRPO trainer knobs (all overridable via env vars)
+    max_seq_len = _envi("MAX_SEQ_LEN", 1024)
+    max_completion_length = _envi("MAX_COMPLETION_LENGTH", 128)
+    per_device_batch_size = _envi("PER_DEVICE_BATCH_SIZE", 4)
+    grad_accum_steps = _envi("GRAD_ACCUM_STEPS", 2)
+    warmup_steps = _envi("WARMUP_STEPS", 10)
+    save_steps = _envi("SAVE_STEPS", 50)
+    logging_steps = _envi("LOGGING_STEPS", 5)
+    temperature = _envf("TEMPERATURE", 0.7)
+    top_p = _envf("TOP_P", 0.9)
+    beta = _envf("BETA", 0.02)
+    max_grad_norm = _envf("MAX_GRAD_NORM", 1.0)
+    num_prompts = _envi("NUM_PROMPTS", 64)
 
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
@@ -176,7 +218,7 @@ def main() -> None:
 
     random.seed(42)
     prompts = []
-    for _ in range(64):
+    for _ in range(num_prompts):
         env = CyberSelfPlayEnvironment()
         env.reset()
         for _ in range(random.randint(0, 4)):
@@ -200,21 +242,23 @@ def main() -> None:
     args = GRPOConfig(
         output_dir=output_dir,
         learning_rate=learning_rate,
-        per_device_train_batch_size=4,
-        gradient_accumulation_steps=2,
+        per_device_train_batch_size=per_device_batch_size,
+        gradient_accumulation_steps=grad_accum_steps,
         num_generations=num_generations,
-        max_completion_length=128,
+        max_completion_length=max_completion_length,
         max_steps=max_steps,
-        logging_steps=5,
-        warmup_steps=10,
+        logging_steps=logging_steps,
+        warmup_steps=warmup_steps,
         optim="adamw_8bit",
         bf16=use_bf16,
         fp16=use_fp16,
         use_cpu=not has_cuda,
-        save_steps=50,
+        save_steps=save_steps,
         report_to="none",
-        temperature=0.9,
-        beta=0.04,
+        temperature=temperature,
+        top_p=top_p,
+        beta=beta,
+        max_grad_norm=max_grad_norm,
     )
 
     trainer = GRPOTrainer(
