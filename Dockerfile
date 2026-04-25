@@ -49,9 +49,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     if [ -f uv.lock ]; then \
-        uv sync --frozen --no-editable; \
+        uv sync --frozen --no-editable --extra train; \
     else \
-        uv sync --no-editable; \
+        uv sync --no-editable --extra train; \
     fi
 
 # Final runtime stage

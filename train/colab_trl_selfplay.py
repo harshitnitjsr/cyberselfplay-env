@@ -23,12 +23,17 @@ from dataclasses import dataclass
 from statistics import mean
 from typing import Any, Dict, List, Tuple
 
-import matplotlib.pyplot as plt
 from datasets import Dataset
 from huggingface_hub import HfApi, login
 from peft import LoraConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from trl import SFTConfig, SFTTrainer
+
+try:
+    import matplotlib.pyplot as plt
+    HAS_MATPLOTLIB = True
+except Exception:
+    HAS_MATPLOTLIB = False
 
 try:
     from cyber_selfplay_env.environment import CyberSelfPlayEnvironment
@@ -303,6 +308,10 @@ def save_artifacts(
             ensure_ascii=True,
             indent=2,
         )
+
+    if not HAS_MATPLOTLIB:
+        print("[artifacts] matplotlib not installed; skipping PNG plots.")
+        return
 
     # Graph 1: average reward per episode.
     xs = [int(r["episode_id"]) for r in episode_summaries]
