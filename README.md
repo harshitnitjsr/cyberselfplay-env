@@ -12,10 +12,15 @@ pinned: false
 
 **CyberSelfPlay** is an OpenEnv-compliant reinforcement learning world built for
 **long-horizon planning + instruction following (Theme 2)** and
-**self-improvement via league self-play (Theme 4)**.
-A Blue policy must execute long enterprise recovery plans (up to 300
-instructions) under partial observability while adapting against a curriculum of
-Red attackers sampled by **PFSP** with a **PSRO**-style restricted-game solver.
+**self-improvement + co-evolution (Theme 4)**.
+A Blue policy can execute long enterprise recovery plans (up to 300
+instructions) under partial observability, with a **stochastic** cyber simulator
+and **rich Red vs Blue** action spaces (see [two training tracks](#8-hackathon-theme-alignment) below).
+
+| Track | What it is |
+| --- | --- |
+| **[SFT + GRPO](train/README-GRPO.md)** (e.g. `train/kaggle_grpo.py`, `train/grpo_space.py`) | Supervised warm-start, then **on-policy** refinement: the **Blue** LLM **improves from its own rollouts** scored by the environment. Documented, GPU-friendly, **primary path** for reproducing the fine-tuned Blue policy. |
+| **League + PFSP + PSRO** | Optional **population**-based training: opponent pools, `f(w)=w(1-w)` weighting, replicator-style meta-updates. See `run_demo.py`, `train/colab_trl_selfplay.py`, `train/pfsp.py`, `train/psro_meta.py`. |
 
 ---
 
@@ -166,6 +171,9 @@ cyber_selfplay/
 │   └── app.py                    # FastAPI app (+ /artifacts, /info, /health)
 ├── train/
 │   ├── _bootstrap.py             # sys.path bootstrap shared by all scripts
+│   ├── README-GRPO.md            # SFT+GRPO pipeline (Kaggle/Space) + theme alignment
+│   ├── kaggle_grpo.py            # one-cell SFT+GRPO (Kaggle; primary tuned path)
+│   ├── grpo_space.py             # same pipeline for HF Space / Docker
 │   ├── pfsp.py                   # PFSP opponent sampling
 │   ├── psro_meta.py              # Replicator meta-solver
 │   ├── colab_trl_selfplay.py     # Single-policy TRL SFT loop (default)
@@ -187,16 +195,21 @@ cyber_selfplay/
 
 ## 6. Quickstart
 
-### 6.0 ⭐ Judge / reviewer entry point — ONE file does everything
+### 6.0 ⭐ Judge / reviewer entry points
+
+**A — Full stack demo (environment + league + PFSP + PSRO in one run):**
 ```bash
 pip install -e .[train]      # one-time install
-python run_demo.py           # full end-to-end demo (env + PFSP + PSRO + rollouts + league + TRL SFT + artifacts)
-# or for the fastest path (no fine-tune, ~20s):
+python run_demo.py           # end-to-end: env + PFSP + PSRO + rollouts + league + TRL SFT + artifacts
+# fastest path (no fine-tune, ~20s):
 python run_demo.py --no-train --no-upload --episodes 6 --max-steps 30 --grid-episodes 1
 ```
-`run_demo.py` runs 8 stages back-to-back, prints a summary JSON, and writes
-everything under `artifacts/` and `outputs/`. This is the single file judges
-should run to evaluate the project.
+`run_demo.py` runs multiple stages, prints a summary JSON, and writes outputs under
+`artifacts/` and `outputs/`.
+
+**B — SFT + GRPO Blue policy (matches Kaggle / HF Space training):** see
+**[train/README-GRPO.md](train/README-GRPO.md)** — one notebook cell (`kaggle_grpo.py`)
+or `grpo_space.py` in Docker, with training curves, logs, and LoRA export.
 
 ### 6.1 Install + run server locally
 ```bash
@@ -212,14 +225,17 @@ pip install -e .[dev]
 pytest -q
 ```
 
-### 6.3 Single-policy training run (recommended first)
+### 6.3 SFT + GRPO (recommended for a measured RL fine-tune)
+See **[train/README-GRPO.md](train/README-GRPO.md)**. Entry points: `train/kaggle_grpo.py` (Kaggle), `train/grpo_space.py` (Hugging Face Space / Docker with env vars).
+
+### 6.4 Single-policy TRL SFT (`colab_trl_selfplay.py`)
 ```bash
 python train/colab_trl_selfplay.py
 # outputs/cyber-blue-sft/   <- LoRA model
 # artifacts/                <- logs, CSV, plots, JSON summaries
 ```
 
-### 6.4 League self-play (PFSP alternating)
+### 6.5 League self-play (PFSP alternating)
 ```bash
 TRAIN_LEAGUE_ROUNDS=2 python train/colab_trl_selfplay.py
 # or the dedicated entry points:
@@ -228,14 +244,14 @@ python train/train_red_vs_pool.py  --rounds 2 --episodes 6
 python train/evaluate_league.py    --episodes 3
 ```
 
-### 6.5 Optional Hugging Face Hub upload
+### 6.6 Optional Hugging Face Hub upload
 ```bash
 export HF_TOKEN=hf_xxx
 export HF_MODEL_REPO=yourname/cyber-blue-sft
 python train/colab_trl_selfplay.py
 ```
 
-### 6.6 Docker
+### 6.7 Docker
 ```bash
 make docker-build
 make docker-run                 # http://localhost:7870
@@ -274,11 +290,20 @@ Files appear in `artifacts/` (logs, CSV, plots) and `outputs/` (model dir).
 ## 8. Hackathon Theme Alignment
 
 - **Theme 2 — Long-horizon reasoning & instruction following:** up to 300
-  ordered instructions, sparse + dense + delayed checkpoint rewards, instruction
-  violation tracking, scenario-scaled horizons.
-- **Theme 4 — Self-improvement / co-evolution:** PFSP opponent sampling, PSRO
-  replicator meta-solver, automatic curriculum escalation, exploitability-gap
-  proxy across (Blue, Red) league grid.
+  ordered instructions, partial observability, sparse + dense + delayed checkpoint
+  rewards, instruction progress / violation signals in `blue_reward`, and
+  structured `CyberAction` output — trained policies map observations to
+  env-scored actions (SFT+GRPO and league tracks both use this environment).
+
+- **Theme 4 — Self-improvement / co-evolution (two ways in this repo):**
+  1. **SFT + GRPO** — the Blue policy **improves after deployment** of the SFT
+     checkpoint: it samples its own completions, receives environment rewards, and
+     updates with **group-relative** RL. That is **on-policy self-improvement** in
+     a **stochastic** simulator. Details: [train/README-GRPO.md](train/README-GRPO.md).
+  2. **League + PFSP + PSRO** — **population**-based co-evolution: opponent pools,
+     PFSP weighting, PSRO-style replicator updates, and league evaluation
+     (`run_demo.py`, `train/pfsp.py`, `train/psro_meta.py`, `train/evaluate_league.py`).
+     Optional add-on or second stage if you want explicit multi-opponent training.
 
 ---
 
