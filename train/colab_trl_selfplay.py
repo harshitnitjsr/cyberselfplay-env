@@ -16,6 +16,7 @@ Usage in Colab:
 from __future__ import annotations
 
 import csv
+import inspect
 import json
 import os
 import random
@@ -229,24 +230,38 @@ def run_trl_sft(dataset: Dataset, model_name: str = "Qwen/Qwen2.5-0.5B-Instruct"
         bias="none",
         task_type="CAUSAL_LM",
     )
-    args = SFTConfig(
-        output_dir="outputs/cyber-blue-sft",
-        per_device_train_batch_size=2,
-        gradient_accumulation_steps=4,
-        num_train_epochs=1,
-        learning_rate=2e-5,
-        logging_steps=10,
-        save_steps=100,
-        max_seq_length=768,
-        report_to="none",
-    )
-    trainer = SFTTrainer(
-        model=model,
-        args=args,
-        train_dataset=dataset,
-        processing_class=tokenizer,
-        peft_config=peft_config,
-    )
+    # TRL compatibility: different versions use max_seq_length vs max_length.
+    cfg_kwargs: Dict[str, Any] = {
+        "output_dir": "outputs/cyber-blue-sft",
+        "per_device_train_batch_size": 2,
+        "gradient_accumulation_steps": 4,
+        "num_train_epochs": 1,
+        "learning_rate": 2e-5,
+        "logging_steps": 10,
+        "save_steps": 100,
+        "report_to": "none",
+    }
+    sft_cfg_params = inspect.signature(SFTConfig.__init__).parameters
+    if "max_seq_length" in sft_cfg_params:
+        cfg_kwargs["max_seq_length"] = 768
+    elif "max_length" in sft_cfg_params:
+        cfg_kwargs["max_length"] = 768
+
+    args = SFTConfig(**cfg_kwargs)
+
+    trainer_kwargs: Dict[str, Any] = {
+        "model": model,
+        "args": args,
+        "train_dataset": dataset,
+        "peft_config": peft_config,
+    }
+    trainer_params = inspect.signature(SFTTrainer.__init__).parameters
+    if "processing_class" in trainer_params:
+        trainer_kwargs["processing_class"] = tokenizer
+    elif "tokenizer" in trainer_params:
+        trainer_kwargs["tokenizer"] = tokenizer
+
+    trainer = SFTTrainer(**trainer_kwargs)
     trainer.train()
     trainer.save_model(args.output_dir)
     tokenizer.save_pretrained(args.output_dir)
