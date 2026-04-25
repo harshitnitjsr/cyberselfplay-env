@@ -173,6 +173,7 @@ cyber_selfplay/
 │   ├── _bootstrap.py             # sys.path bootstrap shared by all scripts
 │   ├── README-GRPO.md            # SFT+GRPO pipeline (Kaggle/Space) + theme alignment
 │   ├── kaggle_grpo.py            # one-cell SFT+GRPO (Kaggle; primary tuned path)
+│   ├── kaggle_grpo_league.py     # SFT + PFSP/PSRO league + GRPO per round (Kaggle)
 │   ├── grpo_space.py             # same pipeline for HF Space / Docker
 │   ├── pfsp.py                   # PFSP opponent sampling
 │   ├── psro_meta.py              # Replicator meta-solver

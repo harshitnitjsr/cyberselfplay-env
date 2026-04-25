@@ -4,8 +4,9 @@ This document is the **reference** for the **SFT + GRPO** track: supervised warm
 
 | File | When to use |
 | --- | --- |
-| `train/kaggle_grpo.py` | Kaggle: one cell, Unsloth + TRL, plots, per-step logs, optional Hub push |
-| `train/grpo_space.py` | Hugging Face Space / Docker: same loop, `ENV`-driven configuration |
+| `train/kaggle_grpo.py` | Kaggle: one cell, SFT + single GRPO phase (fastest default) |
+| `train/kaggle_grpo_league.py` | Kaggle: **SFT + league rounds** — **PFSP** / **PSRO** / **mix** opponent pick (`OPP_SAMPLE_MODE`), **PSRO** replicator on heuristic payoffs, **mini-GRPO** per round, aligned Red preamble; `HF_SPACE_CLONE` env to point at your Space |
+| `train/grpo_space.py` | Hugging Face Space / Docker: `ENV`-driven configuration |
 
 The **same** repository also ships **league / PFSP / PSRO** utilities (`train/pfsp.py`, `train/psro_meta.py`, `run_demo.py`, `colab_trl_selfplay.py` with league flags) for **population-based** training. Those modules are **independent** entry points: you can run SFT+GRPO alone, run league demos alone, or later **compose** a GRPO checkpoint into a league pool.
 
