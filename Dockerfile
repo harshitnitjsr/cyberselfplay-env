@@ -79,7 +79,7 @@ ENV TRAIN_ALWAYS=1
 
 # ---------- GRPO trainer knobs (read by train/grpo_space.py) ----------
 # Base model and adapter
-ENV BASE_MODEL=unsloth/Qwen2.5-0.5B-Instruct-bnb-4bit
+ENV BASE_MODEL=unsloth/Qwen2.5-1.5B-Instruct-bnb-4bit
 ENV LORA_RANK=16
 ENV MAX_SEQ_LEN=1024
 ENV OUTPUT_DIR=/data/outputs_cyber

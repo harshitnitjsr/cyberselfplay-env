@@ -207,9 +207,10 @@ sft_args = SFTConfig(
     fp16                        = use_fp16,
     save_strategy               = "no",
     report_to                   = "none",
-    max_seq_length              = MAX_SEQ_LEN,
+    max_length                  = MAX_SEQ_LEN,
     dataset_text_field          = "text",
-    packing                     = False,
+    packing                     = True,
+    packing_strategy            = "bfd",
 )
 sft_trainer = SFTTrainer(
     model         = model,

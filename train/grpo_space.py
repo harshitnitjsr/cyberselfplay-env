@@ -335,7 +335,7 @@ def save_training_plots(trainer, out_dir: str) -> None:
 
 
 def main() -> None:
-    base_model = _env("BASE_MODEL", "unsloth/Qwen2.5-0.5B-Instruct-bnb-4bit")
+    base_model = _env("BASE_MODEL", "unsloth/Qwen2.5-1.5B-Instruct-bnb-4bit")
     max_steps = _envi("MAX_STEPS", 150)
     num_generations = _envi("NUM_GENERATIONS", 4)
     learning_rate = _envf("LEARNING_RATE", 5e-6)
@@ -422,9 +422,10 @@ def main() -> None:
             fp16=use_fp16,
             save_strategy="no",
             report_to="none",
-            max_seq_length=max_seq_len,
+            max_length=max_seq_len,
             dataset_text_field="text",
-            packing=False,
+            packing=True,
+            packing_strategy="bfd",
         )
         sft_trainer = SFTTrainer(
             model=model,
