@@ -104,6 +104,16 @@ ENV TOP_P=0.9
 ENV BETA=0.02
 ENV MAX_GRAD_NORM=1.0
 
+# ---------- SFT warm-start (Phase 1, before GRPO) ----------
+# Set DO_SFT=0 to skip the warm-start (not recommended for small models).
+ENV DO_SFT=1
+ENV SFT_EPISODES=30
+ENV SFT_EPOCHS=2
+ENV SFT_LEARNING_RATE=2e-4
+
+# Reward for unparseable output during GRPO (single fixed value; no shaping).
+ENV INVALID_PENALTY=-1.0
+
 # ---------- TRL SFT trainer knobs (used by colab_trl_selfplay.py) ----------
 ENV TRAIN_LEAGUE_ROUNDS=0
 ENV TRAIN_NUM_EPISODES=20
