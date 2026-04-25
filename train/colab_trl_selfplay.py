@@ -4,22 +4,28 @@ Colab-ready HF TRL training loop for CyberSelfPlay.
 This script:
 1) collects online rollouts from CyberSelfPlayEnvironment,
 2) keeps higher-reward Blue actions as training targets,
-3) runs TRL SFT fine-tuning with LoRA.
+3) runs TRL SFT fine-tuning with LoRA,
+4) writes logs/metrics/plots for README evidence,
+5) optionally uploads model + artifacts to Hugging Face Hub.
 
 Usage in Colab:
-  !pip install -q "openenv-core[core]" "trl>=0.10.0" "transformers>=4.40.0" "datasets>=2.19.0" "accelerate>=0.30.0" "peft>=0.11.0"
+  !pip install -q "openenv-core[core]" "trl>=0.10.0" "transformers>=4.40.0" "datasets>=2.19.0" "accelerate>=0.30.0" "peft>=0.11.0" "matplotlib>=3.8.0" "huggingface_hub>=0.23.0"
   !python train/colab_trl_selfplay.py
 """
 
 from __future__ import annotations
 
+import csv
 import json
+import os
 import random
 from dataclasses import dataclass
 from statistics import mean
-from typing import Dict, List
+from typing import Any, Dict, List, Tuple
 
+import matplotlib.pyplot as plt
 from datasets import Dataset
+from huggingface_hub import HfApi, login
 from peft import LoraConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from trl import SFTConfig, SFTTrainer
@@ -56,10 +62,16 @@ RED_TOOLS = [
 
 @dataclass
 class RolloutRecord:
+    episode_id: int
+    step: int
     prompt: str
     response: str
     reward: float
-    metadata: Dict[str, object]
+    exfil_rate: float
+    mttd: float
+    mttr: float
+    instruction_completion_rate: float
+    metadata: Dict[str, Any]
 
 
 def obs_to_prompt(obs: Dict[str, object]) -> str:
@@ -110,11 +122,26 @@ def action_to_json(action: CyberAction) -> str:
     )
 
 
-def collect_rollouts(num_episodes: int = 16, max_steps: int = 60) -> List[RolloutRecord]:
+def _safe_float(val: Any, fallback: float = -1.0) -> float:
+    if val is None:
+        return fallback
+    try:
+        return float(val)
+    except Exception:
+        return fallback
+
+
+def collect_rollouts(num_episodes: int = 16, max_steps: int = 60) -> Tuple[List[RolloutRecord], List[Dict[str, float]]]:
     rows: List[RolloutRecord] = []
-    for _ in range(num_episodes):
+    episode_summaries: List[Dict[str, float]] = []
+    for ep in range(num_episodes):
         env = CyberSelfPlayEnvironment()
         obs = env.reset()
+        blue_rewards: List[float] = []
+        exfil_rate = 0.0
+        mttd = -1.0
+        mttr = -1.0
+        inst_completion = 0.0
         for t in range(max_steps):
             if obs.done:
                 break
@@ -128,9 +155,17 @@ def collect_rollouts(num_episodes: int = 16, max_steps: int = 60) -> List[Rollou
             # Blue turn (teacher policy for bootstrapping)
             blue_action = heuristic_blue_action(obs.public_state)
             blue_obs = env.step(blue_action)
+            blue_rewards.append(float(blue_obs.reward))
+            metrics = (blue_obs.metadata or {}).get("posg_metrics", {})
+            exfil_rate = _safe_float(metrics.get("exfil_success_rate"), exfil_rate)
+            mttd = _safe_float(metrics.get("mttd"), mttd)
+            mttr = _safe_float(metrics.get("mttr"), mttr)
+            inst_completion = _safe_float(metrics.get("instruction_completion_rate"), inst_completion)
 
             rows.append(
                 RolloutRecord(
+                    episode_id=ep,
+                    step=t,
                     prompt=obs_to_prompt(
                         {
                             "public_state": blue_obs.public_state,
@@ -141,11 +176,27 @@ def collect_rollouts(num_episodes: int = 16, max_steps: int = 60) -> List[Rollou
                     ),
                     response=action_to_json(blue_action),
                     reward=float(blue_obs.reward),
+                    exfil_rate=exfil_rate,
+                    mttd=mttd,
+                    mttr=mttr,
+                    instruction_completion_rate=inst_completion,
                     metadata=blue_obs.metadata or {},
                 )
             )
             obs = blue_obs
-    return rows
+
+        episode_summaries.append(
+            {
+                "episode_id": float(ep),
+                "avg_blue_reward": mean(blue_rewards) if blue_rewards else 0.0,
+                "final_exfil_rate": exfil_rate,
+                "final_mttd": mttd,
+                "final_mttr": mttr,
+                "final_instruction_completion": inst_completion,
+                "steps": float(len(blue_rewards)),
+            }
+        )
+    return rows, episode_summaries
 
 
 def build_training_dataset(rollouts: List[RolloutRecord], keep_top_frac: float = 0.5) -> Dataset:
@@ -194,15 +245,135 @@ def run_trl_sft(dataset: Dataset, model_name: str = "Qwen/Qwen2.5-0.5B-Instruct"
     trainer.train()
     trainer.save_model(args.output_dir)
     tokenizer.save_pretrained(args.output_dir)
+
+    # Persist raw train logs from trainer.
+    os.makedirs("artifacts", exist_ok=True)
+    with open("artifacts/trainer_log_history.json", "w", encoding="utf-8") as f:
+        json.dump(trainer.state.log_history, f, ensure_ascii=True, indent=2)
+
     return args.output_dir
+
+
+def save_artifacts(
+    rollouts: List[RolloutRecord],
+    episode_summaries: List[Dict[str, float]],
+    out_dir: str,
+) -> None:
+    os.makedirs("artifacts", exist_ok=True)
+
+    # Step-level logs.
+    with open("artifacts/rollout_logs.jsonl", "w", encoding="utf-8") as f:
+        for r in rollouts:
+            row = {
+                "episode_id": r.episode_id,
+                "step": r.step,
+                "reward": r.reward,
+                "exfil_rate": r.exfil_rate,
+                "mttd": r.mttd,
+                "mttr": r.mttr,
+                "instruction_completion_rate": r.instruction_completion_rate,
+            }
+            f.write(json.dumps(row, ensure_ascii=True) + "\n")
+
+    # Episode summaries CSV.
+    with open("artifacts/episode_metrics.csv", "w", newline="", encoding="utf-8") as f:
+        fieldnames = [
+            "episode_id",
+            "avg_blue_reward",
+            "final_exfil_rate",
+            "final_mttd",
+            "final_mttr",
+            "final_instruction_completion",
+            "steps",
+        ]
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in episode_summaries:
+            writer.writerow(row)
+
+    with open("artifacts/train_summary.json", "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "num_rollout_samples": len(rollouts),
+                "num_episodes": len(episode_summaries),
+                "avg_rollout_reward": mean([r.reward for r in rollouts]) if rollouts else 0.0,
+                "model_output_dir": out_dir,
+            },
+            f,
+            ensure_ascii=True,
+            indent=2,
+        )
+
+    # Graph 1: average reward per episode.
+    xs = [int(r["episode_id"]) for r in episode_summaries]
+    ys_reward = [float(r["avg_blue_reward"]) for r in episode_summaries]
+    plt.figure(figsize=(8, 4))
+    plt.plot(xs, ys_reward, marker="o")
+    plt.xlabel("Episode")
+    plt.ylabel("Average Blue Reward")
+    plt.title("Blue Reward Over Episodes")
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig("artifacts/reward_curve.png", dpi=150)
+    plt.close()
+
+    # Graph 2: exfiltration downtrend.
+    ys_exfil = [float(r["final_exfil_rate"]) for r in episode_summaries]
+    plt.figure(figsize=(8, 4))
+    plt.plot(xs, ys_exfil, marker="o")
+    plt.xlabel("Episode")
+    plt.ylabel("Exfiltration Success Rate")
+    plt.title("Exfiltration Rate Across Episodes")
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig("artifacts/exfiltration_rate_curve.png", dpi=150)
+    plt.close()
+
+    # Graph 3: MTTD / MTTR.
+    ys_mttd = [float(r["final_mttd"]) for r in episode_summaries]
+    ys_mttr = [float(r["final_mttr"]) for r in episode_summaries]
+    plt.figure(figsize=(8, 4))
+    plt.plot(xs, ys_mttd, marker="o", label="MTTD")
+    plt.plot(xs, ys_mttr, marker="o", label="MTTR")
+    plt.xlabel("Episode")
+    plt.ylabel("Steps")
+    plt.title("MTTD / MTTR Across Episodes")
+    plt.legend()
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig("artifacts/mttd_mttr_curve.png", dpi=150)
+    plt.close()
+
+
+def maybe_upload_to_hub(model_output_dir: str) -> None:
+    """
+    Optional upload. Requires:
+      HF_TOKEN=<token>
+      HF_MODEL_REPO=namespace/model-name
+    """
+    token = os.getenv("HF_TOKEN", "").strip()
+    repo_id = os.getenv("HF_MODEL_REPO", "").strip()
+    if not token or not repo_id:
+        print("[upload] skipped (set HF_TOKEN and HF_MODEL_REPO to enable)")
+        return
+
+    login(token=token)
+    api = HfApi()
+    api.create_repo(repo_id=repo_id, repo_type="model", exist_ok=True)
+
+    api.upload_folder(repo_id=repo_id, folder_path=model_output_dir, repo_type="model")
+    api.upload_folder(repo_id=repo_id, folder_path="artifacts", path_in_repo="artifacts", repo_type="model")
+    print(f"[upload] model + artifacts uploaded to https://huggingface.co/{repo_id}")
 
 
 def main() -> None:
     random.seed(42)
-    rollouts = collect_rollouts(num_episodes=20, max_steps=80)
+    rollouts, episode_summaries = collect_rollouts(num_episodes=20, max_steps=80)
     print(f"Average rollout reward: {mean([r.reward for r in rollouts]) if rollouts else 0:.3f}")
     train_ds = build_training_dataset(rollouts, keep_top_frac=0.5)
     out_dir = run_trl_sft(train_ds)
+    save_artifacts(rollouts, episode_summaries, out_dir)
+    maybe_upload_to_hub(out_dir)
     print(f"Training done. Model saved to: {out_dir}")
 
 

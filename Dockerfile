@@ -71,13 +71,33 @@ ENV PATH="/app/.venv/bin:$PATH"
 # Set PYTHONPATH so imports work correctly
 ENV PYTHONPATH="/app/env:$PYTHONPATH"
 
-# Enable Web Interface
+# -----------------------------
+# Hugging Face Spaces runtime envs
+# -----------------------------
+# App/network
+ENV PORT=7870
+ENV HOST=0.0.0.0
 ENV ENABLE_WEB_INTERFACE=true
+
+# Python runtime behavior
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# HF cache locations (persist within container runtime)
+ENV HF_HOME=/data/.huggingface
+ENV HUGGINGFACE_HUB_CACHE=/data/.cache/huggingface/hub
+ENV TRANSFORMERS_CACHE=/data/.cache/huggingface/transformers
+
+# Optional training toggles (override in Space Variables)
+ENV RUN_TRAIN_ON_STARTUP=1
+ENV TRAIN_SCRIPT_PATH=train/colab_trl_selfplay.py
+ENV TRAIN_ONCE_TAG=run1
+ENV HF_MODEL_REPO=HarshitShri026/cyber-blue-sft
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:7870/health || exit 1
+    CMD sh -c 'curl -f "http://localhost:${PORT:-7870}/health" || exit 1'
 
 # Run the FastAPI server
 # The module path is constructed to work with the /app/env structure
-CMD ["sh", "-c", "cd /app/env && uvicorn server.app:app --host 0.0.0.0 --port 7870"]
+CMD ["sh", "-c", "cd /app/env && uvicorn server.app:app --host ${HOST:-0.0.0.0} --port ${PORT:-7870}"]
