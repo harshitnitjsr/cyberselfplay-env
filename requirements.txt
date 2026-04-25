@@ -1,0 +1,10 @@
+# Pin-free runtime requirements for users who can't use the [train] extra.
+# pyproject.toml is the source of truth; this file mirrors it for plain pip.
+
+openenv-core[core]>=0.2.2
+fastapi>=0.110.0
+uvicorn>=0.27.0
+pydantic>=2.0.0
+
+# Training stack — install with `pip install -r requirements.txt -r requirements-train.txt`
+# kept as a separate file to keep server-only installs lean.

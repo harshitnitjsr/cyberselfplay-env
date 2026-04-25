@@ -10,89 +10,84 @@ pinned: false
 
 # CyberSelfPlay: Autonomous Red-vs-Blue Cyber Defense Environment
 
-**CyberSelfPlay** is an OpenEnv-compliant reinforcement learning world designed for **long-horizon planning + instruction following** and **self-improvement via league self-play**.  
-The environment models enterprise compromise dynamics under partial observability, where a Blue policy must execute long recovery plans (up to 300 instructions), while adapting against evolving Red policies.
+**CyberSelfPlay** is an OpenEnv-compliant reinforcement learning world built for
+**long-horizon planning + instruction following (Theme 2)** and
+**self-improvement via league self-play (Theme 4)**.
+A Blue policy must execute long enterprise recovery plans (up to 300
+instructions) under partial observability while adapting against a curriculum of
+Red attackers sampled by **PFSP** with a **PSRO**-style restricted-game solver.
 
 ---
 
-## Core Reasoning Technologies
+## 1. Core Reasoning Technologies
 
-### 1) Two-Player POSG Cyber Model
-The environment is formalized as a two-player partially observable stochastic game:
+### 1.1 Two-Player POSG Cyber Model
+Formalized as a partially observable stochastic game:
 
 $$
 \mathcal{G}=\langle \mathcal{S},\mathcal{A}_R,\mathcal{A}_B,\mathcal{O}_R,\mathcal{O}_B,T,Z_R,Z_B,r_R,r_B,\gamma \rangle
 $$
 
-with objectives:
+with player objectives
 
 $$
 J_i(\pi_i,\pi_{-i})=\mathbb{E}\left[\sum_{t=0}^{H}\gamma^t r_i(s_t,a_t^R,a_t^B)\right], \quad i\in\{R,B\}
 $$
 
-Near-zero-sum with collateral disruption:
+and a near-zero-sum coupling with collateral disruption:
 
 $$
-r_B=-r_R-\lambda C_{\text{collateral}}
+r_B=-r_R-\lambda C_{\mathrm{collateral}}.
 $$
 
-### 2) Long-Horizon Instruction Execution
-Blue must satisfy a mission list $\mathcal{I}=\{I_1,\dots,I_N\}$ with $N\in\{40,120,300\}$ depending on scenario scale.  
-Completion rate is:
+### 1.2 Long-Horizon Instruction Execution
+Blue must satisfy a mission list $\mathcal{I}=\{I_1,\dots,I_N\}$ with $N\in\{40,120,300\}$
+across `small / medium / large` scenarios. Completion / violation rates:
 
 $$
-\rho_{\text{inst}}=\frac{|\mathcal{I}_{\text{done}}|}{|\mathcal{I}|}
+\rho_{\mathrm{inst}}=\frac{|\mathcal{I}_{\mathrm{done}}|}{|\mathcal{I}|},\qquad
+\nu_{\mathrm{inst}}=\frac{|\mathcal{I}_{\mathrm{violated}}|}{|\mathcal{I}|}.
 $$
 
-Violation rate is:
+These values are surfaced in `observation.metadata["posg_metrics"]` every step.
 
-$$
-\nu_{\text{inst}}=\frac{|\mathcal{I}_{\text{violated}}|}{|\mathcal{I}|}
-$$
-
-These values are surfaced in `posg_metrics` each step.
-
-### 3) Dense + Delayed Reward Law
-Red reward:
+### 1.3 Dense + Delayed Reward Law
+Red:
 
 $$
 \begin{aligned}
-r_R &= w_1 I_{\mathrm{foothold}} + w_2 I_{\mathrm{priv}} + w_3 I_{\mathrm{lateral}} + w_4 I_{\mathrm{exfil}} \\
-&\quad - w_5 I_{\mathrm{detect}} + w_6 I_{\mathrm{plan\_sabotage}} - \eta_R
+r_R &= w_1 \mathbb{1}_{\mathrm{foothold}} + w_2 \mathbb{1}_{\mathrm{priv}} + w_3 \mathbb{1}_{\mathrm{lateral}} + w_4 \mathbb{1}_{\mathrm{exfil}} \\
+&\quad - w_5 \mathbb{1}_{\mathrm{detect}} + w_6 \mathbb{1}_{\mathrm{plan\_sabotage}} - \eta_R.
 \end{aligned}
 $$
 
-Blue reward:
+Blue:
 
 $$
 \begin{aligned}
-r_B &= v_1 I_{\mathrm{detect}} + v_2 I_{\mathrm{contain}} + v_3 I_{\mathrm{recover}} - v_4 I_{\mathrm{exfil}} \\
-&\quad + v_5 I_{\mathrm{instruction\_progress}} + v_6 I_{\mathrm{checkpoint}} - v_7 I_{\mathrm{instruction\_violation}} \\
-&\quad + v_8 \rho_{\mathrm{inst}} - \eta_B
+r_B &= v_1 \mathbb{1}_{\mathrm{detect}} + v_2 \mathbb{1}_{\mathrm{contain}} + v_3 \mathbb{1}_{\mathrm{recover}} - v_4 \mathbb{1}_{\mathrm{exfil}} \\
+&\quad + v_5 \mathbb{1}_{\mathrm{instr\_progress}} + v_6 \mathbb{1}_{\mathrm{checkpoint}} - v_7 \mathbb{1}_{\mathrm{instr\_violation}} \\
+&\quad + v_8 \rho_{\mathrm{inst}} - \eta_B.
 \end{aligned}
 $$
 
-This combines immediate cyber events with delayed plan-following signal.
-
-### 4) Adaptive Self-Improvement via League
-Opponents are sampled with PFSP:
+### 1.4 Adaptive Self-Improvement via League
+Opponents are drawn from each side's pool with **PFSP** weighting:
 
 $$
-p_j \propto f(w_j), \qquad f(w)=w(1-w)
+p_j \propto f(w_j),\qquad f(w)=w(1-w),
 $$
 
-This prioritizes informative matchups near $w_j=0.5$.  
-A PSRO-style restricted-game helper updates meta-strategies with a replicator step:
+prioritizing matchups near $w_j=0.5$. A PSRO-style **replicator** step refines
+the meta-strategy:
 
 $$
-p_i' \propto p_i \left(1+\eta(u_i-\bar{u})\right)
+p_i' \propto p_i\left(1+\eta(u_i-\bar{u})\right),\qquad \bar{u}=\sum_i p_i u_i.
 $$
-
-where $\bar{u}=\sum_i p_i u_i$.
 
 ---
 
-## System Architecture
+## 2. Architecture
 
 ```mermaid
 graph TD
@@ -107,117 +102,189 @@ graph TD
     end
 
     subgraph League [Self-Play Training Stack]
-        BLUE["Blue Learner"] -->|"rollouts"| API
+        BLUE["Blue Learner (TRL SFT + LoRA)"] -->|"rollouts"| API
         RED["Red Pool"] -->|"PFSP opponent sampling"| BLUE
-        META["PSRO Meta Solver"] -->|"meta-strategy"| RED
+        META["PSRO Replicator Meta-Solver"] -->|"meta-strategy"| RED
     end
 ```
-
----
-
-## Long-Horizon Dynamics
-
-Episodes are intentionally long to test durable internal state tracking:
-
-- `small`: 60 turns, ~40 instructions
-- `medium`: 100 turns, ~120 instructions
-- `large`: 180 turns, ~300 instructions
-
-Blue receives delayed checkpoint rewards every `checkpoint_every` steps and can lose by timeout if instruction completion is too low.
-
----
-
-## Built-in Evaluation Metrics
-
-The environment emits metrics suitable for hackathon judging and ablations:
-
-**MTTD**
-$$
-\mathrm{MTTD}=t_{\mathrm{first\_detect}}-t_{\mathrm{first\_compromise}}
-$$
-
-**MTTR**
-$$
-\mathrm{MTTR}=t_{\mathrm{recover}}-t_{\mathrm{first\_detect}}
-$$
-
-- **Exfiltration Success Rate**
-- **Critical Asset Compromise Rate**
-- **False-Positive Disruption Cost**
-- **Instruction Completion / Violation Rates**
-
----
-
-## Project Structure
-
-- `cyber_selfplay_env/environment.py` - OpenEnv env class
-- `cyber_selfplay_env/simulator.py` - stochastic hidden dynamics + instruction missions
-- `cyber_selfplay_env/rubrics.py` - reward composition functions
-- `cyber_selfplay_env/metrics.py` - MTTD/MTTR and mission metrics
-- `cyber_selfplay_env/curriculum.py` - automatic scenario escalation
-- `cyber_selfplay_env/tools_red.py`, `cyber_selfplay_env/tools_blue.py` - action spaces
-- `server/app.py` - FastAPI OpenEnv app
-- `client.py` - Env client in the same style as AutoMathReasoner
-- `train/pfsp.py` - PFSP sampler
-- `train/psro_meta.py` - restricted-game meta-strategy helper
-- `train/train_blue_vs_pool.py`, `train/train_red_vs_pool.py` - league loops
-- `train/evaluate_league.py` - metrics + exploitability-gap proxy
-- `train/colab_trl_selfplay.py` - Colab-ready TRL script
-- `notebooks/colab_trl_selfplay.ipynb` - Colab notebook
-
----
-
-## Interaction Loop
 
 ```mermaid
 sequenceDiagram
     participant Red as Red Policy
     participant Blue as Blue Policy
     participant Env as CyberSelfPlay Env
-
-    loop Episode Horizon H
+    loop Episode (length up to 180 turns)
         Red ->> Env: attack action a_t^R
         Env -->> Red: partial obs o_t^R, reward r_R
-        Blue ->> Env: defense/instruction action a_t^B
+        Blue ->> Env: defense / instruction action a_t^B
         Env -->> Blue: partial obs o_t^B, reward r_B + posg_metrics
     end
 ```
 
 ---
 
-## Running the Environment
+## 3. Long-Horizon Dynamics
 
-### 1) Local server
+| scenario | turns | instructions | checkpoint stride |
+|---------:|------:|-------------:|------------------:|
+| small    |    60 |           40 |                 8 |
+| medium   |   100 |          120 |                12 |
+| large    |   180 |          300 |                20 |
+
+Blue receives delayed checkpoint rewards every `checkpoint_every` steps and only
+wins by timeout if $\rho_{\mathrm{inst}}\ge 0.6$.
+
+---
+
+## 4. Built-in Evaluation Metrics
+
+$$
+\mathrm{MTTD}=t_{\mathrm{first\_detect}}-t_{\mathrm{first\_compromise}},\qquad
+\mathrm{MTTR}=t_{\mathrm{recover}}-t_{\mathrm{first\_detect}}.
+$$
+
+Plus: exfiltration success rate, critical asset compromise rate, false-positive
+disruption cost, instruction completion / violation rates, and the league
+exploitability-gap proxy.
+
+---
+
+## 5. Project Layout
+
+```
+cyber_selfplay/
+├── cyber_selfplay_env/           # OpenEnv environment package
+│   ├── environment.py            # Env class (graceful error obs, no crashes)
+│   ├── simulator.py              # Hidden-state cyber range + missions
+│   ├── rubrics.py                # r_R / r_B reward composition
+│   ├── metrics.py                # MTTD / MTTR / mission rates
+│   ├── curriculum.py             # Auto-escalating scenario manager
+│   ├── tools_red.py / tools_blue.py
+│   ├── scenarios.py              # small / medium / large presets
+│   └── models.py                 # CyberAction / CyberObservation pydantic
+├── server/
+│   └── app.py                    # FastAPI app (+ /artifacts, /info, /health)
+├── train/
+│   ├── _bootstrap.py             # sys.path bootstrap shared by all scripts
+│   ├── pfsp.py                   # PFSP opponent sampling
+│   ├── psro_meta.py              # Replicator meta-solver
+│   ├── colab_trl_selfplay.py     # Single-policy TRL SFT loop (default)
+│   ├── train_blue_vs_pool.py     # Blue learner vs PFSP Red pool
+│   ├── train_red_vs_pool.py      # Red-side data collection vs Blue pool
+│   └── evaluate_league.py        # Real rollouts + exploitability proxy
+├── tests/                        # pytest smoke tests (no torch needed)
+├── notebooks/colab_trl_selfplay.ipynb
+├── client.py                     # OpenEnv client (mirrors AutoMathReasoner)
+├── Dockerfile / .dockerignore    # HF Spaces (Docker SDK) ready
+├── pyproject.toml                # [train] + [dev] extras
+├── requirements.txt              # plain-pip server install
+├── requirements-train.txt        # plain-pip training stack
+├── Makefile                      # shortcuts: serve / train / test / docker
+└── openenv.yaml                  # OpenEnv manifest
+```
+
+---
+
+## 6. Quickstart
+
+### 6.0 ⭐ Judge / reviewer entry point — ONE file does everything
 ```bash
-pip install -e .[train]
-python -m server.app
+pip install -e .[train]      # one-time install
+python run_demo.py           # full end-to-end demo (env + PFSP + PSRO + rollouts + league + TRL SFT + artifacts)
+# or for the fastest path (no fine-tune, ~20s):
+python run_demo.py --no-train --no-upload --episodes 6 --max-steps 30 --grid-episodes 1
+```
+`run_demo.py` runs 8 stages back-to-back, prints a summary JSON, and writes
+everything under `artifacts/` and `outputs/`. This is the single file judges
+should run to evaluate the project.
+
+### 6.1 Install + run server locally
+```bash
+pip install -e .                 # server only
+pip install -e .[train]          # adds TRL stack for training
+python -m server.app --port 7870
+```
+Endpoints: `/health`, `/info`, `/artifacts`, plus the standard OpenEnv routes.
+
+### 6.2 Run smoke tests
+```bash
+pip install -e .[dev]
+pytest -q
 ```
 
-### 2) Client endpoint
-```text
-http://localhost:7870
-```
-
-### 3) Colab minimal training
+### 6.3 Single-policy training run (recommended first)
 ```bash
 python train/colab_trl_selfplay.py
+# outputs/cyber-blue-sft/   <- LoRA model
+# artifacts/                <- logs, CSV, plots, JSON summaries
 ```
-or run `notebooks/colab_trl_selfplay.ipynb`.
+
+### 6.4 League self-play (PFSP alternating)
+```bash
+TRAIN_LEAGUE_ROUNDS=2 python train/colab_trl_selfplay.py
+# or the dedicated entry points:
+python train/train_blue_vs_pool.py --rounds 2 --episodes 8
+python train/train_red_vs_pool.py  --rounds 2 --episodes 6
+python train/evaluate_league.py    --episodes 3
+```
+
+### 6.5 Optional Hugging Face Hub upload
+```bash
+export HF_TOKEN=hf_xxx
+export HF_MODEL_REPO=yourname/cyber-blue-sft
+python train/colab_trl_selfplay.py
+```
+
+### 6.6 Docker
+```bash
+make docker-build
+make docker-run                 # http://localhost:7870
+```
 
 ---
 
-## Submission Checklist
+## 7. Hugging Face Spaces Deployment
 
-- [ ] Hugging Face Space URL: `<add-space-link>`
-- [ ] Demo video/blog/slides (< 2 minutes): `<add-link>`
-- [ ] Reward and metric plots committed (`.png`/`.jpg`)
-- [ ] Before-vs-after episode traces in README
+This repo is HF-Spaces-ready (Docker SDK; metadata at the top of this README).
+
+1. Create a new Space (Docker SDK), push this folder.
+2. Open **Settings → Variables and secrets** and set:
+
+| Variable                | Default | Purpose                                             |
+| ----------------------- | ------- | --------------------------------------------------- |
+| `RUN_TRAIN_ON_STARTUP`  | `0`     | Set to `1` to launch training when the Space boots. |
+| `TRAIN_ONCE_TAG`        | empty   | E.g. `v1` — only train once per tag value.          |
+| `TRAIN_LEAGUE_ROUNDS`   | `0`     | `>0` switches to PFSP league self-play.             |
+| `TRAIN_SCRIPT_PATH`     | `train/colab_trl_selfplay.py` | Override training entry point.   |
+| `HF_TOKEN`              | secret  | Required only if uploading the trained model.       |
+| `HF_MODEL_REPO`         | empty   | E.g. `youruser/cyber-blue-sft` for upload target.   |
+
+3. After a training run, fetch artifacts:
+```bash
+curl https://<your-space-url>/artifacts
+```
+Files appear in `artifacts/` (logs, CSV, plots) and `outputs/` (model dir).
+
+> Defaults are **safe**: training never auto-runs unless you explicitly set
+> `RUN_TRAIN_ON_STARTUP=1`. The `/health` and `/artifacts` endpoints work
+> without any training.
 
 ---
 
-## References
+## 8. Hackathon Theme Alignment
 
-- [Vinyals et al., Nature 2019 (AlphaStar)](https://www.nature.com/articles/s41586-019-1724-z)
-- [Lanctot et al., NeurIPS 2017 (PSRO)](https://mlanctot.info/files/papers/nips17-psro.pdf)
-- [Hu et al., ACM TOPS 2021 (Cyber Defense POMDP)](https://doi.org/10.1145/3418897)
-- [CAGE-2 POMDP Defender Formulation](https://arxiv.org/html/2509.06539v1)
+- **Theme 2 — Long-horizon reasoning & instruction following:** up to 300
+  ordered instructions, sparse + dense + delayed checkpoint rewards, instruction
+  violation tracking, scenario-scaled horizons.
+- **Theme 4 — Self-improvement / co-evolution:** PFSP opponent sampling, PSRO
+  replicator meta-solver, automatic curriculum escalation, exploitability-gap
+  proxy across (Blue, Red) league grid.
+
+---
+
+## 9. References
+
+- Vinyals et al., *Nature* 2019 — AlphaStar / league training.
+- Lanctot et al., *NeurIPS* 2017 — PSRO.
+- Hu et al., *ACM TOPS* 2021 — Cyber Defense POMDP.
+- TTCP CAGE-2 — Defender POMDP formulation.

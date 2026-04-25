@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from typing import Any, Dict
 from uuid import uuid4
 
 from openenv.core.env_server.interfaces import Environment
@@ -13,12 +16,29 @@ from .tools_blue import validate_blue_tool
 from .tools_red import validate_red_tool
 
 
+def _error_observation(actor: str, message: str) -> CyberObservation:
+    """Return a zero-reward observation describing a soft validation failure.
+
+    Surfacing errors as observations (rather than raising HTTP 500s) lets the
+    OpenEnv web UI / dumb clients explore the env without nuking the session.
+    """
+    return CyberObservation(
+        actor=actor or "blue",
+        public_state={},
+        telemetry=[],
+        incident_summary={"winner": "", "terminated": False},
+        reward=0.0,
+        done=False,
+        metadata={"error": message},
+    )
+
+
 class CyberSelfPlayEnvironment(Environment):
     """OpenEnv-compatible cyber self-play environment."""
 
     SUPPORTS_CONCURRENT_SESSIONS: bool = True
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._state = State(episode_id=str(uuid4()), step_count=0)
         self.curriculum = CurriculumManager()
         self.sim = CyberSimulator(build_scenario(self.curriculum.state.scenario_name))
@@ -43,28 +63,44 @@ class CyberSelfPlayEnvironment(Environment):
             metadata={
                 "note": "Blue starts with partial telemetry. Alternate actors each step.",
                 "scenario": self.curriculum.state.scenario_name,
+                "valid_actors": ["red", "blue"],
             },
         )
 
     def step(self, action: CyberAction) -> CyberObservation:  # type: ignore[override]
         self._state.step_count += 1
-        actor = action.actor.lower()
-        tool_name = action.tool_name
+        actor = (action.actor or "blue").lower()
+        tool_name = action.tool_name or ""
         target = action.target or "host-00"
+        params: Dict[str, Any] = action.params if isinstance(action.params, dict) else {}
 
         if actor not in {"red", "blue"}:
-            raise ValueError("actor must be 'red' or 'blue'")
+            return _error_observation(
+                actor=actor, message=f"invalid actor '{action.actor}'. expected 'red' or 'blue'."
+            )
         if actor == "red" and not validate_red_tool(tool_name):
-            raise ValueError(f"invalid red tool: {tool_name}")
+            return _error_observation(
+                actor=actor,
+                message=f"invalid red tool: '{tool_name}'. see /tools or rubrics.",
+            )
         if actor == "blue" and not validate_blue_tool(tool_name):
-            raise ValueError(f"invalid blue tool: {tool_name}")
+            return _error_observation(
+                actor=actor,
+                message=f"invalid blue tool: '{tool_name}'. see /tools or rubrics.",
+            )
 
-        state, events = self.sim.step(
-            actor=actor,
-            tool_name=tool_name,
-            target=target,
-            params=action.params,
-        )
+        try:
+            state, events = self.sim.step(
+                actor=actor,
+                tool_name=tool_name,
+                target=target,
+                params=params,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            return _error_observation(
+                actor=actor, message=f"simulator step failed: {exc!s}"
+            )
+
         self.metrics.update(actor=actor, state=state, events=events)
 
         if actor == "red":
