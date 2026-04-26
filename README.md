@@ -16,7 +16,10 @@ CyberSelfPlay is an OpenEnv-compatible reinforcement learning environment for cy
 
 ## Environment on Hugging Face Space
 
-- **Live Space:** [CyberSelfPlay on Hugging Face](https://huggingface.co/spaces/HarshitShri026)
+- **Live Space (hub):** [CyberSelfPlay on Hugging Face](https://huggingface.co/spaces/HarshitShri026)
+- **Running app / API base:** [https://harshitshri026-cyberselfplay-env.hf.space](https://harshitshri026-cyberselfplay-env.hf.space/)
+- **Interactive API (Swagger):** [https://harshitshri026-cyberselfplay-env.hf.space/docs](https://harshitshri026-cyberselfplay-env.hf.space/docs)
+- **ReDoc:** [https://harshitshri026-cyberselfplay-env.hf.space/redoc](https://harshitshri026-cyberselfplay-env.hf.space/redoc)
 - **Narrative, Colab context, and results figures:** [Blogs](Blog.md)
 
 ---

@@ -2,7 +2,7 @@
 
 **Training Script Link:** [League (PFSP + PSRO) — Colab (mixed)](https://colab.research.google.com/drive/192y6Xf6uYjW0Z0yffBaKjtfVJGCT4b4S?usp=sharing)
 
-**Documentation:** the math-led overview, full training table, and repository layout are in the [project README](README.md) (and this file links back to it in [Where to go next](#where-to-go-next)).
+**Documentation:** the math-led overview, full training table, and repository layout are in the [project README](README.md) (and this file links back to it in [Where to go next](#where-to-go-next)). For the deployed OpenEnv HTTP API, use the live Space app [https://harshitshri026-cyberselfplay-env.hf.space](https://harshitshri026-cyberselfplay-env.hf.space/) with interactive docs at [Swagger (`/docs`)](https://harshitshri026-cyberselfplay-env.hf.space/docs) and [ReDoc (`/redoc`)](https://harshitshri026-cyberselfplay-env.hf.space/redoc).
 
 ## Why this environment exists
 
@@ -307,6 +307,6 @@ For evaluation-focused work, it provides a bridge between toy tasks and operatio
 ## Where to go next
 
 - **Project README** (formal POSG, rewards, training math, and full method table): [README.md](README.md)
-- **Hugging Face Space (live environment):** [CyberSelfPlay on Hugging Face](https://huggingface.co/spaces/HarshitShri026)
+- **Hugging Face Space (live environment):** [CyberSelfPlay on Hugging Face](https://huggingface.co/spaces/HarshitShri026) — running API: [harshitshri026-cyberselfplay-env.hf.space](https://harshitshri026-cyberselfplay-env.hf.space/), [Swagger `/docs`](https://harshitshri026-cyberselfplay-env.hf.space/docs), [ReDoc `/redoc`](https://harshitshri026-cyberselfplay-env.hf.space/redoc)
 
 The README and this blog point to each other so you can move between the specification-style overview and the narrative plus figures here.
