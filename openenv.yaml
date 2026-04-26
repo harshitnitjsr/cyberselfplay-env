@@ -1,7 +1,7 @@
 env:
   name: "CyberSelfPlay"
   author: "Team Neuron"
-  description: "Long-horizon Red-vs-Blue cyber defense POSG with partial observability, stochastic transitions, mission-instruction progress signals, and league-style opponent pressure for robust policy learning."
+  description: "Red-vs-Blue cyber defense POSG with partial observability, stochastic transitions, mission-instruction progress signals, and league-style opponent pressure for robust policy learning."
   version: "0.1.0"
   homepage: "https://huggingface.co/spaces/HarshitShri026"
   domain: "cyber-defense"
@@ -113,27 +113,4 @@ training:
     - name: "sft_league_grpo"
       implementation: "league-based training path"
       summary: "SFT + league rounds with PFSP/PSRO/mix opponent scheduling and mini-GRPO updates"
-  artifacts:
-    common:
-      - "training curves"
-      - "optimization history logs"
-      - "metrics logs"
-      - "per-sample reward traces"
-      - "per-step visualizations"
-    league:
-      - "combined multi-round trend curves"
-      - "league state trajectory logs"
-      - "combined round history logs"
 
-evaluation:
-  built_in_metrics:
-    - "instruction_progress_rate"
-    - "instruction_violation_rate"
-    - "mttd"
-    - "mttr"
-    - "exfiltration_pressure"
-    - "checkpoint_progress"
-  success_characterization:
-    - "improved environment-aligned Blue reward after SFT->GRPO"
-    - "stable action diversity under anti-collapse shaping"
-    - "robustness gains under league opponent variation"
