@@ -1,6 +1,6 @@
 # CyberSelfPlay: Building a Cyber Defense Environment
 
-*TRaining Script Link:** [League (PFSP + PSRO) — Colab (mixed)](https://colab.research.google.com/drive/192y6Xf6uYjW0Z0yffBaKjtfVJGCT4b4S?usp=sharing)
+**Training Script Link:** [League (PFSP + PSRO) — Colab (mixed)](https://colab.research.google.com/drive/192y6Xf6uYjW0Z0yffBaKjtfVJGCT4b4S?usp=sharing)
 
 **Documentation:** the math-led overview, full training table, and repository layout are in the [project README](README.md) (and this file links back to it in [Where to go next](#where-to-go-next)).
 
@@ -27,12 +27,13 @@ What makes this direction **novel** is that we do not treat “good defense” a
 
 ## What the environment is
 
-CyberSelfPlay is an OpenEnv-compatible two-player environment:
+CyberSelfPlay is an OpenEnv-compatible two-player environment. **Red** (attacker) and **Blue** (defender) share one hidden world state; each step, one side submits a move, the simulator applies it, and the next observation is for that actor. Blue is the policy you typically train; Red can be scripted, pooled, or treated as a league opponent archetype. Episodes are bounded by a scenario-specific turn budget, with termination on exfil success, or on horizon with a win condition tied to mission instruction completion.
 
-- **Red** (attacker) and **Blue** (defender) act in the same world state.
-- Blue receives partial state + mission context + progress metadata.
-- Blue outputs structured `CyberAction` JSON actions through tool APIs.
-- Rewards encode both security outcomes (detect/contain/recover) and mission outcomes (instruction progress/checkpoints/violations).
+**Blue** chooses from a fixed defender tool set: SIEM and triage, isolation, account controls, secret rotation, patching, hardening, backups, forensics, IOC publishing, and playbook tools such as `execute_instruction` and `checkpoint_plan`—each call names a `tool_name`, an optional `target` (host or asset), and a `params` object for tool-specific arguments, plus an optional `rationale` string. **Red** uses a separate attacker tool set: recon, enumeration, exploit and credential access, pivoting, persistence, exfil pipeline stages, cover-up, and recovery-plan sabotage. Invalid tools return a non-terminal observation with an error in metadata rather than crashing the session.
+
+- Blue receives **partial** public state, noisy telemetry, incident summary fields, and rich **metadata** (reward components, simulator events, POSG metrics, curriculum/scenario tags).
+- **CyberAction** is the OpenEnv `Action` type: JSON-shaped, validated per side before the simulator runs.
+- Rewards encode both security outcomes (detect/contain/recover) and mission outcomes (instruction progress/checkpoints/violations), with components exposed for logging and for RL shaping.
 
 Formally, the environment is modeled as a partially observable stochastic game (POSG):
 
@@ -68,8 +69,8 @@ At a high level, the system has:
 2. **API server**
    - OpenEnv endpoints for interaction.
 3. **Training pipelines**
-   - a single-policy path (SFT -> GRPO),
-   - and a league-based path (SFT -> rounds + mini-GRPO + PFSP/PSRO updates).
+   - a single-policy path: **SFT** on demonstration or filtered rollouts, then **GRPO** on environment reward;
+   - and a league-based path that uses the **same** SFT and GRPO machinery: an initial SFT stage, then for each **league round** a **mini-GRPO** segment together with **PFSP / PSRO** (or mixed) opponent meta-updates over Red archetypes or policy pools.
 
 Together, these parts create a full loop: simulate attack/defense interactions, score behavior with mission-aware rewards, then improve the policy using those outcomes.
 
@@ -81,11 +82,20 @@ Together, these parts create a full loop: simulate attack/defense interactions, 
 
 ### Observations
 
-Blue observes partial environment state and mission/task context, including progress-related metadata.
+Observations are **player-local**. After each `step`, the `CyberObservation` for the active actor includes:
+
+- **`public_state`**: a partial view of the world. For Blue, this typically includes the simulation time step, a short history of **detections**, **business impact**, a coarse incident count, and **instruction progress** (counts of completed, violated, and total playbook instructions). Red sees a different slice (e.g., limited target hints and detection pressure)—so neither side sees the full state vector.
+- **`telemetry`**: a short, possibly noisy list of events (e.g., recent detections for Blue; weak indirect signals for Red), reinforcing partial observability.
+- **`incident_summary`**: high-level fields such as termination, winner, exfil status, and time index—usable as a quick situational readout.
+- **`reward`**: scalar reward from the **previous** action (after `reset`, typically zero).
+- **`done`**: whether the episode has ended.
+- **`metadata`**: on successful steps, this carries **decomposed reward components**, raw **events** from the simulator, **POSG metrics** snapshots (e.g., exfil and instruction rates), and **curriculum** information (scenario name, rolling win rates, episode counts). On invalid actions, metadata may contain an **error** string instead.
+
+Reset returns an initial Blue observation with scenario/curriculum hints and a note that play alternates between Red and Blue.
 
 ### Actions
 
-Blue emits `CyberAction` JSON tool calls. Red has its own attacker actions in the same timeline.
+The policy does not mutate the simulator with free text: it must emit a **`CyberAction`**: `actor` (`"red"` or `"blue"`), `tool_name` (must be in that side’s allowed set), `target` (e.g., host id), `params` (a dict for tools that need extra fields, such as which capability an `execute_instruction` step requires), and optional `rationale`. Red and Blue each have distinct tool vocabularies; the environment validates the tool name before calling the **CyberSimulator** `step` logic.
 
 ### Reward design
 
@@ -153,12 +163,7 @@ This step is important because it addresses a common failure mode in small-model
 
 ### Step 4: Move to league training for broader robustness
 
-Single-policy GRPO improved behavior, but robustness against varied attacker styles needed stronger pressure. We then moved to a league-based training loop:
-
-- run multiple league rounds,
-- pick Red archetypes using PFSP / PSRO / mix,
-- run mini-GRPO each round,
-- update meta-probabilities with replicator dynamics.
+Single-policy GRPO improved behavior, but robustness against varied attacker styles needed stronger pressure. We then moved to a league-based training loop that still builds on **SFT** and **GRPO**—not only meta-game structure. A typical run starts with the same **SFT** style initialization used in the non-league recipes, then repeats for **multiple league rounds**: sample or weight **Red** opponents (PFSP, PSRO, or a **mix**), build rollouts and prompts in line with the sampled profile, and run a **mini-GRPO** phase per round on environment reward (with the same family of Unsloth/LoRA/TRL tooling as the vanilla pipeline). **PFSP** and **PSRO** (or their combination) update who gets sampled or how policy weights evolve across rounds, while the inner learning signal remains **SFT-initialized policy improvement via GRPO** under changing opponent pressure. Round-level updates use **replicator**-style or win-rate-weighted rules so the training mixture stays adaptive.
 
 PFSP weighting:
 
@@ -208,9 +213,9 @@ These SVGs are the high-level system view and training pipeline, as in the [READ
 |--------|----------------|-------------------------------|----------|
 | **SFT → GRPO (Vanilla)** | [Open in Colab](https://colab.research.google.com/drive/1K5771KT0-2lyU6eNghqQEStBS4OSF7D7?usp=sharing) | `SFT_→_GRPO_(Vanilla).ipynb` | Supervised fine-tuning on trajectory-style data, then **vanilla GRPO** with the environment reward only: the baseline for single-policy learning. |
 | **SFT → GRPO (Anti-Collapse)** | [Open in Colab](https://colab.research.google.com/drive/1HivyWte1q-sugE04XsyMi1U_RY1oGkJ8?usp=sharing) | `SFT_→_GRPO_(Anti_Collapse_Regularization).ipynb` | Same SFT + GRPO stack with **diversity / anti-collapse** regularization so the policy does not collapse to a tiny set of tool actions. |
-| **League (PFSP)** | [Open in Colab](https://colab.research.google.com/drive/1g2QCBqdvo7QwRC7dJaV8QdO7RvTPGyY1?usp=sharing) | `League(PFSP).ipynb` | **League** training with **Prioritized Fictitious Self-Play**: opponents are sampled with weights tied to matchups, so the defender faces a shifting mixture of Red styles. |
-| **League (PSRO)** | [Open in Colab](https://colab.research.google.com/drive/1O6IoE-_UloAeDXKve2ZA1W4OajychglP?usp=sharing) | `League_(PSRO) (1).ipynb` | League loop using **PSRO-style** meta-updates on a population of policies (response oracles) rather than only PFSP sampling. |
-| **League (PFSP + PSRO)** | [Open in Colab](https://colab.research.google.com/drive/192y6Xf6uYjW0Z0yffBaKjtfVJGCT4b4S?usp=sharing) | `League_(PFSP_+_PSRO).ipynb` | **Combined** path: PFSP for opponent (policy) choice plus PSRO-style weighting so sampling and meta-game updates run together. |
+| **League (PFSP)** | [Open in Colab](https://colab.research.google.com/drive/1g2QCBqdvo7QwRC7dJaV8QdO7RvTPGyY1?usp=sharing) | `League(PFSP).ipynb` | **SFT** warm-start and per-round **mini-GRPO** on environment reward, with **Prioritized Fictitious Self-Play** so Red-style opponents are sampled with matchup-driven weights. |
+| **League (PSRO)** | [Open in Colab](https://colab.research.google.com/drive/1O6IoE-_UloAeDXKve2ZA1W4OajychglP?usp=sharing) | `League_(PSRO) (1).ipynb` | **SFT** and **GRPO** as above, with **PSRO**-style meta-updates on the opponent or policy pool in addition to league sampling. |
+| **League (PFSP + PSRO)** | [Open in Colab](https://colab.research.google.com/drive/192y6Xf6uYjW0Z0yffBaKjtfVJGCT4b4S?usp=sharing) | `League_(PFSP_+_PSRO).ipynb` | **SFT**, **GRPO**, and **PFSP** + **PSRO** together: opponent (policy) choice and replicator-style meta-updates in one loop. |
 
 The notebooks mirror the table in the [README `Training Approaches` section](README.md#-training-approaches-in-this-project); Colab is the shareable run surface, and the `notebook/` files are the offline copies in this repository.
 
