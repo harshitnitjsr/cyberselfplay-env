@@ -1,5 +1,5 @@
----
-title: CyberSelfPlay (Long-Horizon Cyber POSG)
+﻿---
+title: CyberSelfPlay (Cyber POSG)
 emoji: 🛡️
 colorFrom: blue
 colorTo: red
@@ -10,17 +10,22 @@ pinned: true
 
 # CyberSelfPlay: Autonomous Red-vs-Blue Cyber Defense Environment
 
-CyberSelfPlay is an OpenEnv-compatible reinforcement learning environment for long-horizon cyber defense. The setting is a partially observable, stochastic Red-vs-Blue contest where Blue must execute enterprise recovery playbooks while Red applies adversarial pressure.
+**Important links:** [League (PFSP + PSRO) — Colab (mixed)](https://colab.research.google.com/drive/192y6Xf6uYjW0Z0yffBaKjtfVJGCT4b4S?usp=sharing)
+
+CyberSelfPlay is an OpenEnv-compatible reinforcement learning environment for cyber defense. The setting is a partially observable, stochastic Red-vs-Blue contest where Blue must execute enterprise recovery playbooks while Red applies adversarial pressure.
 
 ## Environment on Hugging Face Space
 
-- **Live Space:** `https://huggingface.co/spaces/HarshitShri026`
+- **Live Space:** [CyberSelfPlay on Hugging Face](https://huggingface.co/spaces/HarshitShri026)
+- **Narrative, Colab context, and results figures:** [Blogs](Blogs.md)
 
 ---
 
 ## Problem and Capability Gap
 
-Most agent benchmarks are short-horizon and single-agent. Cyber defense in practice is long-horizon, partially observable, adversarial, and stochastic. CyberSelfPlay targets that gap by coupling multi-step mission execution with attacker-defender interaction and structured tool actions.
+Most agent benchmarks are short and single-agent. Cyber defense in practice is multi-step, partially observable, adversarial, and stochastic. CyberSelfPlay targets that gap by coupling multi-step mission execution with attacker-defender interaction and structured tool actions.
+
+**Connection to long-horizon and self-play themes:** the setting stresses **(super) long-horizon planning and instruction following**—episodes with many steps, many playbook instructions, and security rewards that are often sparse or delayed, so the agent must track state, recover from mis-steps, and keep coherent plans across long runs. It also supports **self-improvement through interaction**: the training stack uses **SFT → GRPO** and **league (PFSP / PSRO / mix)** to keep pressure adaptive—opponents and rounds change, so the LLM policy is not tuned on a static task set but on an evolving, self-play–style curriculum over the same family of tasks.
 
 ---
 
@@ -108,7 +113,7 @@ r_B &= v_1 \mathbb{1}_{\mathrm{detect}} + v_2 \mathbb{1}_{\mathrm{contain}} + v_
 \end{aligned}
 $$
 
-Concrete rubric implementation is in `cyber_selfplay_env/rubrics.py`.
+The reward rubric is implemented directly in the environment’s scoring logic.
 
 ---
 
@@ -137,9 +142,9 @@ We experiment across **SFT + GRPO baselines**, **reward smoothing**, **diversity
 | **SFT → GRPO (Vanilla)** | Baseline using only environment reward | [Open](https://colab.research.google.com/drive/1K5771KT0-2lyU6eNghqQEStBS4OSF7D7?usp=sharing) | <img src="https://res.cloudinary.com/dp1ejt3eb/image/upload/v1777187892/SFT_GRPO_Vanilla_i88mbr.png" width="350"/>|
 | **SFT → GRPO (Anti-Collapse)** | Adds diversity penalty to avoid mode collapse | [Open](https://colab.research.google.com/drive/1HivyWte1q-sugE04XsyMi1U_RY1oGkJ8?usp=sharing) | <img src="https://res.cloudinary.com/dp1ejt3eb/image/upload/v1777188452/SFT_GRPO_Anti-Collapse_Regularization_fq3mgo.png" width="350"/> |
 | **🔹 League (Multi-Policy RL)** ||||
-| **League (PFSP)** | Prioritized Fictitious Self-Play for opponent sampling | [Open](https://colab.research.google.com/drive/1mDk9pzeRudjmXhU0VBVJymqF5An8bHhk?usp=sharing) | Win-rate curves |
-| **League (PSRO)** | Policy-Space Response Oracles (game-theoretic updates) | [Open](https://colab.research.google.com/drive/1O6IoE-_UloAeDXKve2ZA1W4OajychglP?usp=sharing) | <img src="https://res.cloudinary.com/dp1ejt3eb/image/upload/v1777188537/League_PSRO_wd3esy.png" width="350"/> |
-| **League (PFSP + PSRO)** | Combines adaptive sampling + meta-policy optimization | [Open](https://colab.research.google.com/drive/1OaOQYmoq2ni2FjCUukBkpt3BpT55uhX9?usp=sharing) | Meta + Reward curves |
+| **League (PFSP)** | Prioritized Fictitious Self-Play for opponent sampling | [Open](https://colab.research.google.com/drive/1g2QCBqdvo7QwRC7dJaV8QdO7RvTPGyY1?usp=sharing) | <img src="https://res.cloudinary.com/dgyebzm4w/image/upload/v1777194098/League_PFSP_vunfsn.png" width="350"/> |
+| **League (PSRO)** | Policy-Space Response Oracles (game-theoretic updates) | [Open](https://colab.research.google.com/drive/1O6IoE-_UloAeDXKve2ZA1W4OajychglP?usp=sharing) | <img src="https://res.cloudinary.com/dp1ejt3eb/image/upload/v1777193765/League_PSRO_ra89hw.png" width="350"/> |
+| **League (PFSP + PSRO)** | Combines adaptive sampling + meta-policy optimization | [Open](https://colab.research.google.com/drive/192y6Xf6uYjW0Z0yffBaKjtfVJGCT4b4S?usp=sharing) | <img src="https://res.cloudinary.com/dgyebzm4w/image/upload/v1777191934/League_PFSP_PSRO_kpbenx.png" width="350"/> |
 
 ---
 
@@ -239,7 +244,7 @@ Score each completion with reward $R^{(j)}$, compute group-relative advantages, 
 
 ---
 
-## Long-Horizon Scenario Scale
+## Scenario Scale
 
 | scenario | turns | instructions | checkpoint stride |
 | --- | ---: | ---: | ---: |
@@ -255,20 +260,20 @@ Instruction progress and violation signals are tracked in environment metadata.
 
 Across training runs, Blue policies generally move from imitation-only behavior (SFT) to stronger environment-aligned behavior after GRPO. In league mode, round-level opponent selection (PFSP / PSRO / mix) changes pressure distribution and produces distinct multi-round learning dynamics.
 
-Common result artifacts produced by the training scripts include:
+Common result artifacts produced by training include:
 
-- `training_curves.png`
-- `log_history.json`
-- `train_metrics.log`
-- `per_step_rewards.jsonl`
-- per-step curve images under `curves/`
-- league-specific outputs such as `training_curves_all_rounds.png`, `league_state.jsonl`, and `log_history_combined.json`
+- consolidated training curves,
+- step-by-step optimization history,
+- metrics logs,
+- per-sample reward traces,
+- per-step visualization snapshots,
+- and, for league experiments, combined multi-round trend and meta-state reports.
 
 ---
 
 ## Why It Matters
 
-- **Security operations relevance:** models long-horizon defense decisions closer to real incident response.
+- **Security operations relevance:** models multi-step defense decisions closer to real incident response.
 - **Research relevance:** provides a reproducible adversarial benchmark for instruction-following under uncertainty.
 - **Evaluation relevance:** combines environment dynamics, tool-structured actions, and measurable outcomes.
 

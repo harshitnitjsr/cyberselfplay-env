@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "openenv-cyber-selfplay"
 version = "0.1.0"
-description = "Cyber defense red-vs-blue self-play environment for OpenEnv (Theme 4: self-improvement, Theme 2: long-horizon reasoning)."
+description = "Cyber defense red-vs-blue self-play environment for OpenEnv (Theme 4: self-improvement, Theme 2: multi-step reasoning)."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

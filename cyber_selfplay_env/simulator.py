@@ -159,7 +159,7 @@ class CyberSimulator:
             pending = [x for x in mission["instructions"] if not x["done"]]
             if pending:
                 current = pending[0]
-                # Requires matching tool in params to model long-horizon instruction following.
+                # Requires matching tool in params to model multi-step instruction following.
                 requested_tool = ""
                 if params and isinstance(params.get("required_tool"), str):
                     requested_tool = params["required_tool"]

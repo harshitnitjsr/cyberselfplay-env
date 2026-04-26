@@ -1,16 +1,139 @@
 env:
   name: "CyberSelfPlay"
-  author: "Hackathon Team"
-  description: "Long-horizon red-vs-blue cyber POSG with adaptive self-play curriculum and delayed instruction-following rewards."
+  author: "Team Neuron"
+  description: "Long-horizon Red-vs-Blue cyber defense POSG with partial observability, stochastic transitions, mission-instruction progress signals, and league-style opponent pressure for robust policy learning."
   version: "0.1.0"
+  homepage: "https://huggingface.co/spaces/HarshitShri026"
+  domain: "cyber-defense"
+  tags:
+    - "openenv"
+    - "cybersecurity"
+    - "red-vs-blue"
+    - "multi-agent"
+    - "multi-step"
+    - "partially-observable"
+    - "instruction-following"
+    - "reinforcement-learning"
+    - "long-horizon"
+    - "self-play"
+    - "adaptive-curriculum"
+  # Aligns with program themes: (1) long-horizon planning & instruction following;
+  # (2) self-improvement via self-play and adaptive opponent pressure.
+  program_themes:
+    long_horizon_planning_and_instruction_following: >
+      Episodes and scenarios scale to many steps and many playbook instructions, with
+      sparse and delayed security and mission rewards. Agents must decompose response
+      goals, track partial state and instruction progress, and maintain coherent
+      behavior across long trajectories (beyond one-shot or shallow next-step reasoning).
+    self_improvement_and_adaptive_curricula: >
+      Red versus Blue interaction provides explicit self-play over a defined family of
+      cyber-defense tasks. SFT, GRPO, and league training (PFSP, PSRO, and mixed
+      meta-scheduling) vary opponent mix and round pressure, yielding adaptive-curriculum
+      style learning and recursive policy improvement on the same environment interface.
+  task_type: "sequential_decision_making"
+  horizon:
+    min_steps: 60
+    max_steps: 180
+  scenarios:
+    - name: "small"
+      turns: 60
+      instructions: 40
+      checkpoint_stride: 8
+    - name: "medium"
+      turns: 100
+      instructions: 120
+      checkpoint_stride: 12
+    - name: "large"
+      turns: 180
+      instructions: 300
+      checkpoint_stride: 20
+  agents:
+    red:
+      role: "attacker"
+      objective: "maximize foothold/privilege/lateral movement/exfiltration while avoiding detection"
+    blue:
+      role: "defender"
+      objective: "detect/contain/recover while completing ordered mission instructions"
+  observation_space:
+    red: "partial observability over attack-relevant state and outcomes"
+    blue: "partial observability over defense state, mission context, and progress metadata"
+  action_space:
+    red: "structured cyber actions for adversarial operations"
+    blue: "structured CyberAction JSON tool calls"
+  reward_model:
+    type: "multi-component"
+    notes:
+      - "dense + delayed terms"
+      - "instruction progress/checkpoint/violation shaping"
+      - "near-zero-sum coupling with collateral cost term"
+  references:
+    project_overview: "Main project overview and environment description"
+    technical_blog: "Narrative write-up with math, training journey, and results"
+    environment_components: "Simulator, rubrics, metrics, scenarios, and tool interfaces"
+    training_process: "For full training process details, refer to README.md"
+    notebooks:
+      - "notebook/SFT_→_GRPO_(Vanilla).ipynb"
+      - "notebook/SFT_→_GRPO_(Anti_Collapse_Regularization).ipynb"
+      - "notebook/League(PFSP).ipynb"
+      - 'notebook/League_(PSRO) (1).ipynb'
+      - "notebook/League_(PFSP_+_PSRO).ipynb"
+    training_paths:
+      - "Single-policy SFT to GRPO refinement"
+      - "League-based SFT to round-wise GRPO with PFSP/PSRO scheduling"
 
 server:
   host: "0.0.0.0"
   port: 7870
   workers: 1
   module: "server.app:app"
+  routes_hint:
+    - "/health"
+    - "/info"
+    - "/artifacts"
+  api_style: "OpenEnv-compatible FastAPI service"
 
 features:
   multi_reward: true
   prevent_hacking: true
   curriculum_scheduler: true
+  partial_observability: true
+  stochastic_dynamics: true
+  multi_agent: true
+  instruction_tracking: true
+  adversarial_interaction: true
+  league_training_support: true
+  pfsp_support: true
+  psro_support: true
+
+training:
+  primary_pipelines:
+    - name: "sft_grpo"
+      implementation: "single-policy training path"
+      summary: "SFT warm start followed by single-policy GRPO refinement"
+    - name: "sft_league_grpo"
+      implementation: "league-based training path"
+      summary: "SFT + league rounds with PFSP/PSRO/mix opponent scheduling and mini-GRPO updates"
+  artifacts:
+    common:
+      - "training curves"
+      - "optimization history logs"
+      - "metrics logs"
+      - "per-sample reward traces"
+      - "per-step visualizations"
+    league:
+      - "combined multi-round trend curves"
+      - "league state trajectory logs"
+      - "combined round history logs"
+
+evaluation:
+  built_in_metrics:
+    - "instruction_progress_rate"
+    - "instruction_violation_rate"
+    - "mttd"
+    - "mttr"
+    - "exfiltration_pressure"
+    - "checkpoint_progress"
+  success_characterization:
+    - "improved environment-aligned Blue reward after SFT->GRPO"
+    - "stable action diversity under anti-collapse shaping"
+    - "robustness gains under league opponent variation"
