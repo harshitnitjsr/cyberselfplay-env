@@ -135,7 +135,7 @@ We experiment across **SFT + GRPO baselines**, **reward smoothing**, **diversity
 |--------|-------------|-------|--------------|--------|
 | **🔹 GRPO (Single-Policy RL)** | |  |  |  |
 | **SFT → GRPO (Vanilla)** | Baseline: environment reward only | [Open](#) | Reward ↑, stable parsing (~100%), but mode collapse observed | Reward vs Step, Loss |
-| **SFT → GRPO (Regularization)** | Penalizes repeated actions (anti-collapse) | [Open](#) | Higher action diversity, reduced collapse, more stable reward | Reward + Diversity |
+| **SFT → GRPO (Anti-Collapse Regularization)** | Penalizes repeated actions (anti-collapse) | [Open](#) | Higher action diversity, reduced collapse, more stable reward | Reward + Diversity |
 | **🔹 League (Multi-Policy RL)** |  |  |  |  |
 | **League (PFSP)** | Prioritized opponent sampling | [Open](#) | Improved robustness, better win-rate vs diverse opponents | Win-rate curves |
 | **League (PSRO)** | Meta-policy updates (game-theoretic) | [Open](#) | Reduced exploitability, adaptive strategies | Meta-policy weights |
