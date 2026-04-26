@@ -114,11 +114,11 @@ Concrete rubric implementation is in `cyber_selfplay_env/rubrics.py`.
 
 ## Environment Architecture
 
-![Architecture Diagram](./assets/architecture.png)
+<img src="https://res.cloudinary.com/dgyebzm4w/image/upload/v1777181551/architecture_dus774.svg" width = "800"/>
 
 ## Training Flow
 
-![Training Flow Diagram](./assets/training-flow.png)
+<img src="https://res.cloudinary.com/dgyebzm4w/image/upload/v1777181108/training-flow_a3xupo.svg" width="800"/>
 
 ---
 
