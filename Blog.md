@@ -1,6 +1,6 @@
 # CyberSelfPlay: Building a Cyber Defense Environment
 
-**Important links:** [League (PFSP + PSRO) — Colab (mixed)](https://colab.research.google.com/drive/192y6Xf6uYjW0Z0yffBaKjtfVJGCT4b4S?usp=sharing)
+*TRaining Script Link:** [League (PFSP + PSRO) — Colab (mixed)](https://colab.research.google.com/drive/192y6Xf6uYjW0Z0yffBaKjtfVJGCT4b4S?usp=sharing)
 
 **Documentation:** the math-led overview, full training table, and repository layout are in the [project README](README.md) (and this file links back to it in [Where to go next](#where-to-go-next)).
 
