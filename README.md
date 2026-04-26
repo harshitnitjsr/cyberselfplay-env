@@ -1,11 +1,11 @@
-﻿---
+---
 title: CyberSelfPlay (Long-Horizon Cyber POSG)
-emoji: "🛡️"
+emoji: 🛡️
 colorFrom: blue
 colorTo: red
 sdk: docker
 app_port: 7870
-pinned: false
+pinned: true
 ---
 
 # CyberSelfPlay: Autonomous Red-vs-Blue Cyber Defense Environment
@@ -48,13 +48,17 @@ $$
 
 where:
 
-- $\mathcal{S}$ is the hidden environment state space.
-- $\mathcal{A}_R,\mathcal{A}_B$ are Red and Blue action spaces.
-- $\mathcal{O}_R,\mathcal{O}_B$ are Red and Blue observation spaces.
-- $T$ is the state-transition kernel.
-- $Z_R,Z_B$ are observation emission models for each player.
-- $r_R,r_B$ are Red and Blue reward functions.
-- $\gamma$ is the discount factor.
+$$
+\begin{align*}
+\mathcal{S} &: \text{hidden environment state space} \\
+\mathcal{A}_R, \mathcal{A}_B &: \text{Red and Blue action spaces} \\
+\mathcal{O}_R, \mathcal{O}_B &: \text{Red and Blue observation spaces} \\
+T &: \text{state-transition kernel} \\
+Z_R, Z_B &: \text{observation emission models for each player} \\
+r_R, r_B &: \text{Red and Blue reward functions} \\
+\gamma &: \text{discount factor}
+\end{align*}
+$$
 
 with objective:
 
@@ -64,11 +68,15 @@ $$
 
 with:
 
-- $\pi_i$ the policy of player $i$ and $\pi_{-i}$ the opponent policy.
-- $H$ the episode horizon (maximum time steps).
-- $s_t$ the state at time $t$.
-- $a_t^{R},a_t^{B}$ the Red and Blue actions at time $t$.
-- $r_i(\cdot)$ the reward received by player $i$.
+$$
+\begin{aligned}
+\pi_i &: \text{the policy of player } i \text{ and } \pi_{-i} \text{ the opponent policy} \\
+H &: \text{the episode horizon (maximum time steps)} \\
+s_t &: \text{the state at time } t \\
+a_t^{R}, a_t^{B} &: \text{the Red and Blue actions at time } t \\
+r_i(\cdot) &: \text{the reward received by player } i
+\end{aligned}
+$$
 
 and near-zero-sum coupling:
 
@@ -106,81 +114,11 @@ Concrete rubric implementation is in `cyber_selfplay_env/rubrics.py`.
 
 ## Environment Architecture
 
-```mermaid
-graph TD
-    subgraph AgentLayer["Agent Layer"]
-        RED["Red Policy π_R"]
-        BLUE["Blue Policy π_B"]
-    end
-
-    subgraph Interface["OpenEnv Interface"]
-        API["FastAPI / OpenEnv step()"]
-        ACT["Action Validator + CyberAction Parser"]
-    end
-
-    subgraph Core["Environment Core"]
-        SIM["State Transition Simulator T(s,a_R,a_B)"]
-        OBSGEN["Observation Emission Z_R, Z_B"]
-        RUB["Reward Rubrics r_R, r_B"]
-        MET["Mission Metrics\n(ρ_inst, ν_inst, checkpoints)"]
-        TERM["Termination / Truncation Logic"]
-    end
-
-    RED -->|"a_t^R"| API
-    BLUE -->|"a_t^B"| API
-    API --> ACT
-    ACT --> SIM
-
-    SIM --> OBSGEN
-    SIM --> RUB
-    SIM --> MET
-    SIM --> TERM
-
-    OBSGEN -->|"o_t^R"| RED
-    OBSGEN -->|"o_t^B"| BLUE
-    RUB -->|"r_t^R"| RED
-    RUB -->|"r_t^B"| BLUE
-    MET -->|"metadata / posg_metrics"| BLUE
-    TERM -->|"done, truncated"| API
-```
+![Architecture Diagram](./assets/architecture.png)
 
 ## Training Flow
 
-```mermaid
-sequenceDiagram
-    participant M as Base Model + Tokenizer
-    participant D as SFT Dataset Builder
-    participant T as Trainer (GRPO)
-    participant L as League Scheduler
-    participant E as CyberSelfPlay Env
-    participant R as Result Logger
-
-    M->>D: Build SFT dataset from heuristic Blue rollouts
-    D->>T: Initialize policy via SFT optimization
-
-    alt Single-policy pipeline (kaggle_grpo.py)
-        loop Optimization step
-            T->>T: Sample G completions per prompt
-            T->>E: Parse actions + env.step(...)
-            E-->>T: rewards, observations, metadata
-            T->>T: Group-relative advantage + KL-regularized update
-            T->>R: Append step metrics and curves
-        end
-    else League pipeline (kaggle_grpo_league.py)
-        loop League round
-            L->>L: Select opponent (PFSP / PSRO / mix)
-            loop Round optimization step
-                T->>E: Mini-GRPO rollout and reward collection
-                E-->>T: round rewards and trajectories
-                T->>T: Policy update
-                T->>R: Round step metrics and curves
-            end
-            L->>L: Replicator meta update on payoff estimates
-        end
-    end
-
-    R->>R: Export artifacts (training_curves, log_history, per_step_rewards, league_state)
-```
+![Training Flow Diagram](./assets/training-flow.png)
 
 ---
 
@@ -206,70 +144,84 @@ We experiment across **SFT + GRPO baselines**, **reward smoothing**, **diversity
 
 ---
 
-## 📐 Mathematical Formulation (Aligned with Methods)
+## 📐 Mathematical Formulation
 
 ### 1. GRPO (Vanilla)
 
-\[
-\mathcal{L}_{GRPO} = \mathbb{E}\left[\log \pi_\theta(a_i|s)\cdot (r_i - \bar{r})\right]
-\]
+$$
+\mathcal{L}*{\text{GRPO}} = \mathbb{E}\left[\log \pi*\theta(a_i \mid s),(r_i - \bar{r})\right]
+$$
 
-\[
+$$
 \bar{r} = \frac{1}{N}\sum_{i=1}^{N} r_i
-\]
+$$
 
 ---
 
 ### 2. GRPO + Regularization (Anti-Collapse)
 
-\[
-r_i' = r_i - \lambda \cdot \max(0, p(a_i) - \tau)
-\]
+$$
+r_i' = r_i - \lambda ,\max\big(0,; p(a_i) - \tau\big)
+$$
 
 where:
-- \( p(a_i) \) = frequency of action in batch  
-- \( \tau \) = threshold  
+$$
+\begin{aligned}
+p(a_i) &= \text{frequency of action in batch} \
+\tau &= \text{threshold}
+\end{aligned}
+$$
 
 ---
 
 ### 3. PFSP (Prioritized Fictitious Self-Play)
 
-\[
-p_j \propto f(w_j), \quad f(w) = w(1 - w)
-\]
+$$
+p_j \propto f(w_j), \qquad f(w) = w(1 - w)
+$$
 
 where:
-- \( w_j \) = win-rate against opponent \( j \)
+$$
+\begin{aligned}
+w_j &= \text{win-rate against opponent } j
+\end{aligned}
+$$
 
 ---
 
 ### 4. PSRO (Policy-Space Response Oracles)
 
-\[
+$$
 p_i' \propto p_i \left(1 + \eta (u_i - \bar{u}) \right)
-\]
+$$
 
-\[
+$$
 \bar{u} = \sum_i p_i u_i
-\]
+$$
 
 where:
-- \( u_i \) = utility of policy \( i \)  
-- \( \eta \) = learning rate  
+$$
+\begin{aligned}
+u_i &= \text{utility of policy } i \\
+\eta &= \text{learning rate}
+\end{aligned}
+$$
 
 ---
 
 ### 5. PFSP + PSRO (Combined)
 
-\[
-p_j \propto f(w_j), \quad f(w) = w(1 - w)
-\]
+$$
+p_j \propto f(w_j), \qquad f(w) = w(1 - w)
+$$
 
-\[
+$$
 p_i' \propto p_i \left(1 + \eta (u_i - \bar{u}) \right)
-\]
+$$
 
 Combines opponent sampling (PFSP) with meta-policy updates (PSRO).
+
+
 ## Core Optimization Math
 
 ### SFT (Supervised Fine-Tuning)
@@ -362,4 +314,4 @@ cyber_selfplay/
 - Lanctot et al., *NeurIPS* 2017 — PSRO  
 - Hu et al., *ACM Transactions on Privacy and Security* (TOPS), 2021 — cyber defense POMDP  
 - TTCP CAGE-2 — defender POMDP framing  
-- Hugging Face TRL documentation (`GRPOTrainer`)  
+- Hugging Face TRL documentation (`GRPOTrainer`)
