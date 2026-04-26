@@ -131,16 +131,15 @@ We experiment across **SFT + GRPO baselines**, **reward smoothing**, **diversity
 
 ### 📊 Overview of Training Methods
 
-| Method | Description | Colab | Final Reward | Curves |
-|--------|-------------|-------|--------------|--------|
-| **🔹 GRPO (Single-Policy RL)** | |  |  |  |
-| **SFT → GRPO (Vanilla)** | Baseline: environment reward only | [Open](#) | Reward ↑, stable parsing (~100%), but mode collapse observed | Reward vs Step, Loss |
-| **SFT → GRPO (Anti-Collapse Regularization)** | Penalizes repeated actions (anti-collapse) | [Open](#) | Higher action diversity, reduced collapse, more stable reward | Reward + Diversity |
-| **🔹 League (Multi-Policy RL)** |  |  |  |  |
-| **League (PFSP)** | Prioritized opponent sampling | [Open](#) | Improved robustness, better win-rate vs diverse opponents | Win-rate curves |
-| **League (PSRO)** | Meta-policy updates (game-theoretic) | [Open](#) | Reduced exploitability, adaptive strategies | Meta-policy weights |
-| **League (PFSP + PSRO)** | Combines PFSP + PSRO | [Open](#) | Best overall: stability + robustness + diversity | Meta + reward curves |
-
+| Method | Description | Colab | Metrics / Curves |
+|--------|------------|-------|------------------|
+| **🔹 GRPO (Single-Policy RL)** ||||
+| **SFT → GRPO (Vanilla)** | Baseline using only environment reward | [Open](https://colab.research.google.com/drive/1K5771KT0-2lyU6eNghqQEStBS4OSF7D7?usp=sharing) | <img src="https://res.cloudinary.com/dp1ejt3eb/image/upload/v1777187892/SFT_GRPO_Vanilla_i88mbr.png" width="350"/>|
+| **SFT → GRPO (Anti-Collapse)** | Adds diversity penalty to avoid mode collapse | [Open](https://colab.research.google.com/drive/1HivyWte1q-sugE04XsyMi1U_RY1oGkJ8?usp=sharing) | <img src="https://res.cloudinary.com/dp1ejt3eb/image/upload/v1777188452/SFT_GRPO_Anti-Collapse_Regularization_fq3mgo.png" width="350"/> |
+| **🔹 League (Multi-Policy RL)** ||||
+| **League (PFSP)** | Prioritized Fictitious Self-Play for opponent sampling | [Open](https://colab.research.google.com/drive/1mDk9pzeRudjmXhU0VBVJymqF5An8bHhk?usp=sharing) | Win-rate curves |
+| **League (PSRO)** | Policy-Space Response Oracles (game-theoretic updates) | [Open](https://colab.research.google.com/drive/1O6IoE-_UloAeDXKve2ZA1W4OajychglP?usp=sharing) | <img src="https://res.cloudinary.com/dp1ejt3eb/image/upload/v1777188537/League_PSRO_wd3esy.png" width="350"/> |
+| **League (PFSP + PSRO)** | Combines adaptive sampling + meta-policy optimization | [Open](https://colab.research.google.com/drive/1OaOQYmoq2ni2FjCUukBkpt3BpT55uhX9?usp=sharing) | Meta + Reward curves |
 
 ---
 
