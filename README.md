@@ -80,6 +80,7 @@ $$
 
 ## Reward Structure
 
+
 **Red reward**
 
 $$
@@ -103,38 +104,172 @@ Concrete rubric implementation is in `cyber_selfplay_env/rubrics.py`.
 
 ---
 
-## Training Approaches in This Project
+## Environment Architecture
 
-Two primary training pipelines are used:
+```mermaid
+graph TD
+    subgraph AgentLayer["Agent Layer"]
+        RED["Red Policy π_R"]
+        BLUE["Blue Policy π_B"]
+    end
 
-1. **SFT + GRPO** (`train/kaggle_grpo.py`)  
-   Supervised fine-tuning followed by a single long Group Relative Policy Optimization phase.
+    subgraph Interface["OpenEnv Interface"]
+        API["FastAPI / OpenEnv step()"]
+        ACT["Action Validator + CyberAction Parser"]
+    end
 
-2. **SFT + merged league + GRPO** (`train/kaggle_grpo_league.py`)  
-   Supervised fine-tuning followed by multi-round mini-GRPO with league dynamics.
+    subgraph Core["Environment Core"]
+        SIM["State Transition Simulator T(s,a_R,a_B)"]
+        OBSGEN["Observation Emission Z_R, Z_B"]
+        RUB["Reward Rubrics r_R, r_B"]
+        MET["Mission Metrics\n(ρ_inst, ν_inst, checkpoints)"]
+        TERM["Termination / Truncation Logic"]
+    end
 
-League training includes:
+    RED -->|"a_t^R"| API
+    BLUE -->|"a_t^B"| API
+    API --> ACT
+    ACT --> SIM
 
-- **PFSP** (Prioritized Fictitious Self-Play) opponent weighting,
-- **PSRO** (Policy-Space Response Orbit) style replicator meta-updates,
-- **mix** mode combining PFSP-style weights and PSRO meta-probabilities.
+    SIM --> OBSGEN
+    SIM --> RUB
+    SIM --> MET
+    SIM --> TERM
 
-### PFSP and PSRO math
+    OBSGEN -->|"o_t^R"| RED
+    OBSGEN -->|"o_t^B"| BLUE
+    RUB -->|"r_t^R"| RED
+    RUB -->|"r_t^B"| BLUE
+    MET -->|"metadata / posg_metrics"| BLUE
+    TERM -->|"done, truncated"| API
+```
 
-PFSP-style weighting:
+## Training Flow
 
-$$
-p_j \propto f(w_j),\qquad f(w)=w(1-w)
-$$
+```mermaid
+sequenceDiagram
+    participant M as Base Model + Tokenizer
+    participant D as SFT Dataset Builder
+    participant T as Trainer (GRPO)
+    participant L as League Scheduler
+    participant E as CyberSelfPlay Env
+    participant R as Result Logger
 
-PSRO-style replicator update:
+    M->>D: Build SFT dataset from heuristic Blue rollouts
+    D->>T: Initialize policy via SFT optimization
 
-$$
-p_i^{\prime} \propto p_i\left(1+\eta(u_i-\bar{u})\right),\qquad \bar{u}=\sum_i p_i u_i
-$$
+    alt Single-policy pipeline (kaggle_grpo.py)
+        loop Optimization step
+            T->>T: Sample G completions per prompt
+            T->>E: Parse actions + env.step(...)
+            E-->>T: rewards, observations, metadata
+            T->>T: Group-relative advantage + KL-regularized update
+            T->>R: Append step metrics and curves
+        end
+    else League pipeline (kaggle_grpo_league.py)
+        loop League round
+            L->>L: Select opponent (PFSP / PSRO / mix)
+            loop Round optimization step
+                T->>E: Mini-GRPO rollout and reward collection
+                E-->>T: round rewards and trajectories
+                T->>T: Policy update
+                T->>R: Round step metrics and curves
+            end
+            L->>L: Replicator meta update on payoff estimates
+        end
+    end
+
+    R->>R: Export artifacts (training_curves, log_history, per_step_rewards, league_state)
+```
 
 ---
 
+## 🚀 Training Approaches in This Project
+
+This project explores multiple training strategies for learning robust Blue policies in the CyberSelfPlay environment.  
+We experiment across **SFT + GRPO baselines**, **reward smoothing**, **diversity shaping**, and **league-based RL**.
+
+---
+
+### 📊 Overview of Training Methods
+
+| Method | Description | Colab | Final Reward | Curves |
+|--------|-------------|-------|--------------|--------|
+| **🔹 GRPO (Single-Policy RL)** | |  |  |  |
+| **SFT → GRPO (Vanilla)** | Baseline: environment reward only | [Open](#) | Reward ↑, stable parsing (~100%), but mode collapse observed | Reward vs Step, Loss |
+| **SFT → GRPO (Regularization)** | Penalizes repeated actions (anti-collapse) | [Open](#) | Higher action diversity, reduced collapse, more stable reward | Reward + Diversity |
+| **🔹 League (Multi-Policy RL)** |  |  |  |  |
+| **League (PFSP)** | Prioritized opponent sampling | [Open](#) | Improved robustness, better win-rate vs diverse opponents | Win-rate curves |
+| **League (PSRO)** | Meta-policy updates (game-theoretic) | [Open](#) | Reduced exploitability, adaptive strategies | Meta-policy weights |
+| **League (PFSP + PSRO)** | Combines PFSP + PSRO | [Open](#) | Best overall: stability + robustness + diversity | Meta + reward curves |
+
+
+---
+
+## 📐 Mathematical Formulation (Aligned with Methods)
+
+### 1. GRPO (Vanilla)
+
+\[
+\mathcal{L}_{GRPO} = \mathbb{E}\left[\log \pi_\theta(a_i|s)\cdot (r_i - \bar{r})\right]
+\]
+
+\[
+\bar{r} = \frac{1}{N}\sum_{i=1}^{N} r_i
+\]
+
+---
+
+### 2. GRPO + Regularization (Anti-Collapse)
+
+\[
+r_i' = r_i - \lambda \cdot \max(0, p(a_i) - \tau)
+\]
+
+where:
+- \( p(a_i) \) = frequency of action in batch  
+- \( \tau \) = threshold  
+
+---
+
+### 3. PFSP (Prioritized Fictitious Self-Play)
+
+\[
+p_j \propto f(w_j), \quad f(w) = w(1 - w)
+\]
+
+where:
+- \( w_j \) = win-rate against opponent \( j \)
+
+---
+
+### 4. PSRO (Policy-Space Response Oracles)
+
+\[
+p_i' \propto p_i \left(1 + \eta (u_i - \bar{u}) \right)
+\]
+
+\[
+\bar{u} = \sum_i p_i u_i
+\]
+
+where:
+- \( u_i \) = utility of policy \( i \)  
+- \( \eta \) = learning rate  
+
+---
+
+### 5. PFSP + PSRO (Combined)
+
+\[
+p_j \propto f(w_j), \quad f(w) = w(1 - w)
+\]
+
+\[
+p_i' \propto p_i \left(1 + \eta (u_i - \bar{u}) \right)
+\]
+
+Combines opponent sampling (PFSP) with meta-policy updates (PSRO).
 ## Core Optimization Math
 
 ### SFT (Supervised Fine-Tuning)
