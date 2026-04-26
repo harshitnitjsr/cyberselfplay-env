@@ -10,7 +10,7 @@ pinned: true
 
 # CyberSelfPlay: Autonomous Red-vs-Blue Cyber Defense Environment
 
-**Important links:** [League (PFSP + PSRO) — Colab (mixed)](https://colab.research.google.com/drive/192y6Xf6uYjW0Z0yffBaKjtfVJGCT4b4S?usp=sharing)
+**Training Script Link:** [League (PFSP + PSRO) — Colab (mixed)](https://colab.research.google.com/drive/192y6Xf6uYjW0Z0yffBaKjtfVJGCT4b4S?usp=sharing)
 
 CyberSelfPlay is an OpenEnv-compatible reinforcement learning environment for cyber defense. The setting is a partially observable, stochastic Red-vs-Blue contest where Blue must execute enterprise recovery playbooks while Red applies adversarial pressure.
 
