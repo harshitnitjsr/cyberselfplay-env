@@ -1,6 +1,7 @@
 # CyberSelfPlay: Building a Cyber Defense Environment
 
 **Training Script Link:** [League (PFSP + PSRO) — Colab (mixed)](https://colab.research.google.com/drive/192y6Xf6uYjW0Z0yffBaKjtfVJGCT4b4S?usp=sharing)
+
 **Play a gamebased on this environment:** [Game](https://openenv-ui.vercel.app/)
 
 **Documentation:** the math-led overview, full training table, and repository layout are in the [project README](README.md) (and this file links back to it in [Where to go next](#where-to-go-next)). For the deployed OpenEnv HTTP API, use the live Space app [https://harshitshri026-cyberselfplay-env.hf.space](https://harshitshri026-cyberselfplay-env.hf.space/) with interactive docs at [Swagger (`/docs`)](https://harshitshri026-cyberselfplay-env.hf.space/docs) and [ReDoc (`/redoc`)](https://harshitshri026-cyberselfplay-env.hf.space/redoc).
